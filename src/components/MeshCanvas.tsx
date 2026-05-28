@@ -6,6 +6,7 @@ export type MeshPoint = {
   x: number // 0..1
   y: number // 0..1
   size: number // 0..1
+  enabled?: boolean // defaults to true
 }
 
 const MAX_POINTS = 8

@@ -18,12 +18,13 @@ function rgba(hex: string, a: number) {
 }
 
 function blendColors(colors: string[]): string {
-  if (!colors.length) return '#8888ff'
+  if (!colors.length) return '#0a0a1a'
   const rgb = colors.map(hexToRgb)
   const r = rgb.reduce((s, c) => s + c[0], 0) / rgb.length
   const g = rgb.reduce((s, c) => s + c[1], 0) / rgb.length
   const b = rgb.reduce((s, c) => s + c[2], 0) / rgb.length
-  return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`
+  // darken the blend so it reads as a deep background
+  return `rgb(${Math.round(r * 0.45)},${Math.round(g * 0.45)},${Math.round(b * 0.45)})`
 }
 
 /* ─── wave path ────────────────────────────────────────────── */
@@ -32,11 +33,11 @@ function buildWavePath(
   ctx: CanvasRenderingContext2D,
   W: number,
   H: number,
-  yOffset: number,   // 0..1
-  amplitude: number, // 0..1 (fraction of H)
-  frequency: number, // wave cycles across width
+  yOffset: number,
+  amplitude: number,
+  frequency: number,
   phase: number,
-  thickness: number, // 0..1
+  thickness: number,
   t: number,
   speed: number,
 ) {
@@ -47,7 +48,6 @@ function buildWavePath(
   for (let i = 0; i <= steps; i++) {
     const nx = i / steps
     const x = nx * W
-    // two-octave sine for organic shape
     const baseY =
       yOffset +
       amplitude * Math.sin(frequency * nx * Math.PI * 2 + phase + t * speed) +
@@ -66,6 +66,9 @@ function buildWavePath(
 
 /* ─── renderer ─────────────────────────────────────────────── */
 
+const PHI = 1.6180339887   // golden ratio — keeps x/y frequencies incommensurable
+const DRIFT = 0.13          // max drift radius as fraction of canvas
+
 function render(
   ctx: CanvasRenderingContext2D,
   W: number,
@@ -73,26 +76,46 @@ function render(
   points: MeshPoint[],
   t: number,
 ) {
+  /* ── filter disabled + animate positions ── */
+  const active = points.filter(p => p.enabled !== false)
+  if (!active.length) {
+    ctx.clearRect(0, 0, W, H)
+    ctx.fillStyle = '#0a0a1a'
+    ctx.fillRect(0, 0, W, H)
+    return
+  }
+
+  // Each point drifts around its home (x, y) using two sine waves with
+  // incommensurable frequencies so the path never exactly repeats.
+  const pts = active.map((p, i) => {
+    const f  = 0.05 + i * 0.011                      // Hz, ~18-12 s period
+    const ax = p.x + Math.sin(Math.PI * 2 * f       * t + i * 2.4) * DRIFT
+    const ay = p.y + Math.cos(Math.PI * 2 * f * PHI * t + i * 1.6) * DRIFT
+    return {
+      ...p,
+      x: Math.max(0.04, Math.min(0.96, ax)),
+      y: Math.max(0.04, Math.min(0.96, ay)),
+    }
+  })
+
   ctx.clearRect(0, 0, W, H)
-  const colors = points.map(p => p.color)
+  const colors = pts.map(p => p.color)
 
   /* ── 1. Background ── */
-  const bgColor = blendColors(colors)
-  // slightly darken/saturate background
-  ctx.fillStyle = bgColor
+  ctx.fillStyle = blendColors(colors)
   ctx.fillRect(0, 0, W, H)
 
   /* ── 2. Glow blobs (behind waves) ── */
   ctx.save()
   ctx.filter = 'blur(60px)'
-  points.forEach((p, i) => {
+  pts.forEach((p, i) => {
     const phase = i * 1.2 + t * 0.15
-    const bx = (p.x + Math.sin(phase) * 0.07) * W
-    const by = (p.y + Math.cos(phase * 0.8) * 0.06) * H
+    const bx = (p.x + Math.sin(phase) * 0.05) * W
+    const by = (p.y + Math.cos(phase * 0.8) * 0.04) * H
     const rx = (0.25 + p.size * 0.2) * W
     const ry = (0.18 + p.size * 0.15) * H
 
-    ctx.globalAlpha = 0.65
+    ctx.globalAlpha = 0.70
     ctx.beginPath()
     ctx.ellipse(bx, by, rx, ry, i * 0.4, 0, Math.PI * 2)
     ctx.fillStyle = rgba(p.color, 1)
@@ -101,9 +124,9 @@ function render(
   ctx.restore()
 
   /* ── 3. Wave ribbons ── */
-  points.forEach((p, i) => {
-    const phase    = p.x * Math.PI * 2
-    const yOffset  = p.y
+  pts.forEach((p, i) => {
+    const phase     = p.x * Math.PI * 2
+    const yOffset   = p.y
     const amplitude = 0.06 + p.size * 0.07
     const thickness = 0.08 + p.size * 0.10
     const frequency = 1.2 + (i % 3) * 0.4
@@ -111,15 +134,13 @@ function render(
 
     ctx.save()
     ctx.filter = 'blur(6px)'
-
     buildWavePath(ctx, W, H, yOffset, amplitude, frequency, phase, thickness, t, speed)
 
-    // vertical gradient across ribbon thickness
     const cy = yOffset * H
     const grad = ctx.createLinearGradient(0, cy - thickness * H * 0.55, 0, cy + thickness * H * 0.55)
     grad.addColorStop(0,   rgba(p.color, 0))
     grad.addColorStop(0.3, rgba(p.color, 0.55))
-    grad.addColorStop(0.5, rgba(p.color, 0.80))
+    grad.addColorStop(0.5, rgba(p.color, 0.85))
     grad.addColorStop(0.7, rgba(p.color, 0.55))
     grad.addColorStop(1,   rgba(p.color, 0))
     ctx.fillStyle = grad
@@ -128,15 +149,14 @@ function render(
     ctx.restore()
   })
 
-  /* ── 4. Top blur overlays (atmosphere) ── */
+  /* ── 4. Atmospheric overlays ── */
   ctx.save()
   ctx.filter = 'blur(45px)'
-  ctx.globalAlpha = 0.30
-  // pick alternating colors for top overlays
-  points.forEach((p, i) => {
+  ctx.globalAlpha = 0.28
+  pts.forEach((p, i) => {
     if (i % 2 !== 0) return
-    const ox = (p.x + Math.cos(t * 0.1 + i) * 0.1) * W
-    const oy = (p.y + Math.sin(t * 0.12 + i) * 0.1) * H
+    const ox = (p.x + Math.cos(t * 0.1 + i) * 0.08) * W
+    const oy = (p.y + Math.sin(t * 0.12 + i) * 0.08) * H
     ctx.beginPath()
     ctx.ellipse(ox, oy, W * 0.35, H * 0.28, i * 0.6, 0, Math.PI * 2)
     ctx.fillStyle = rgba(p.color, 1)
@@ -158,7 +178,6 @@ export function WaveCanvas({
   const pointsRef = useRef(points)
   const rafRef    = useRef<number | null>(null)
 
-  // keep latest points accessible in RAF without re-creating loop
   useEffect(() => { pointsRef.current = points }, [points])
 
   useEffect(() => {
@@ -179,7 +198,7 @@ export function WaveCanvas({
       }
     }
 
-    let start = performance.now()
+    const start = performance.now()
     const onResize = () => resize()
     window.addEventListener('resize', onResize)
 

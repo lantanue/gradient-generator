@@ -1,16 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { WaveCanvas, type MeshPoint } from './components/WaveCanvas'
+import { PRESETS, type Preset } from './presets'
+
+/* ─── default palette ──────────────────────────────────────── */
+
+const DEFAULT_POINTS: MeshPoint[] = [
+  { id: 'a', color: '#FFBC25', x: 0.22, y: 0.24, size: 0.60, enabled: true },
+  { id: 'b', color: '#FF773D', x: 0.74, y: 0.70, size: 0.55, enabled: true },
+  { id: 'c', color: '#3CBBCE', x: 0.76, y: 0.22, size: 0.52, enabled: true },
+  { id: 'd', color: '#405FF5', x: 0.24, y: 0.76, size: 0.65, enabled: true },
+]
 
 /* ─── color hex input ──────────────────────────────────────── */
+
 function ColorHexInput({
   color,
+  disabled,
   onChange,
 }: {
   color: string
+  disabled?: boolean
   onChange: (c: string) => void
 }) {
   const ref = useRef<HTMLInputElement>(null)
 
-  // sync when color changes externally (e.g. from native color picker)
   useEffect(() => {
     if (ref.current && document.activeElement !== ref.current) {
       ref.current.value = color.toUpperCase()
@@ -24,15 +37,12 @@ function ColorHexInput({
       defaultValue={color.toUpperCase()}
       maxLength={7}
       spellCheck={false}
+      tabIndex={disabled ? -1 : 0}
       onChange={(e) => {
-        if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
-          onChange(e.target.value)
-        }
+        if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) onChange(e.target.value)
       }}
       onBlur={(e) => {
-        if (!/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
-          e.target.value = color.toUpperCase()
-        }
+        if (!/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) e.target.value = color.toUpperCase()
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
@@ -40,8 +50,6 @@ function ColorHexInput({
     />
   )
 }
-import { WaveCanvas, type MeshPoint } from './components/WaveCanvas'
-import { PRESETS, type Preset } from './presets'
 
 /* ─── helpers ──────────────────────────────────────────────── */
 
@@ -60,12 +68,10 @@ function mulberry32(seed: number) {
 }
 
 function hslToHex(h: number, s: number, l: number) {
-  s /= 100
-  l /= 100
+  s /= 100; l /= 100
   const k = (n: number) => (n + h / 30) % 12
   const a = s * Math.min(l, 1 - l)
-  const f = (n: number) =>
-    l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))
+  const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))
   const toHex = (x: number) => Math.round(x * 255).toString(16).padStart(2, '0')
   return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`
 }
@@ -75,22 +81,10 @@ function randomPastelPalette(rnd: () => number, count: number) {
   const step = 360 / Math.max(3, count)
   return Array.from({ length: count }, (_, i) => {
     const hue = (base + i * step + (rnd() - 0.5) * 28) % 360
-    const sat = 60 + rnd() * 18
-    const lit = 72 + (rnd() - 0.5) * 10
+    const sat = 62 + rnd() * 18
+    const lit = 68 + (rnd() - 0.5) * 12
     return hslToHex(hue, sat, lit)
   })
-}
-
-function newPoints(seed: number, count: number): MeshPoint[] {
-  const rnd = mulberry32(seed)
-  const colors = randomPastelPalette(rnd, count)
-  return Array.from({ length: count }, (_, i) => ({
-    id: `p_${seed}_${i}_${Math.round(rnd() * 1e9)}`,
-    color: colors[i] ?? '#77eab5',
-    x: 0.1 + rnd() * 0.8,
-    y: 0.1 + rnd() * 0.8,
-    size: 0.35 + rnd() * 0.55,
-  }))
 }
 
 function presetToCss(points: Array<{ color: string; x: number; y: number }>): string {
@@ -115,7 +109,6 @@ function PresetCard({
   onClick: () => void
 }) {
   const bg = useMemo(() => presetToCss(preset.points), [preset])
-
   return (
     <button
       className={`presetCard${active ? ' presetCard--active' : ''}`}
@@ -127,12 +120,7 @@ function PresetCard({
         <span className="presetName">{preset.name}</span>
         <div className="presetDots">
           {preset.points.map((p, i) => (
-            <span
-              key={i}
-              className="presetDot"
-              style={{ background: p.color }}
-              title={p.color}
-            />
+            <span key={i} className="presetDot" style={{ background: p.color }} title={p.color} />
           ))}
         </div>
       </div>
@@ -143,18 +131,15 @@ function PresetCard({
 /* ─── toast ────────────────────────────────────────────────── */
 
 function Toast({ message, visible }: { message: string; visible: boolean }) {
-  return (
-    <div className={`toast${visible ? ' toast--visible' : ''}`}>{message}</div>
-  )
+  return <div className={`toast${visible ? ' toast--visible' : ''}`}>{message}</div>
 }
 
 /* ─── app ──────────────────────────────────────────────────── */
 
 export default function App() {
+  const [points, setPoints] = useState<MeshPoint[]>(DEFAULT_POINTS)
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1e9))
-  const [points, setPoints] = useState<MeshPoint[]>(() => newPoints(seed, 5))
   const stageRef = useRef<HTMLDivElement | null>(null)
-  const [dragId, setDragId] = useState<string | null>(null)
   const colorInputRef = useRef<HTMLInputElement | null>(null)
   const [activeColorId, setActiveColorId] = useState<string | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
@@ -165,6 +150,7 @@ export default function App() {
   /* ─── css export ─── */
   const exportCss = useMemo(() => {
     const layers = points
+      .filter(p => p.enabled !== false)
       .map((p) => {
         const x = clamp01(p.x) * 100
         const y = clamp01(p.y) * 100
@@ -187,19 +173,17 @@ export default function App() {
 
   /* ─── export PNG ─── */
   const handleExport = useCallback(() => {
-    const gl = stageRef.current?.querySelector('canvas')
-    if (!gl) return
-    // WebGL canvas needs preserveDrawingBuffer=true to read pixels.
-    // We fall back to a screenshot approach using toDataURL.
+    const canvas = stageRef.current?.querySelector('canvas')
+    if (!canvas) return
     try {
-      const url = gl.toDataURL('image/png')
+      const url = canvas.toDataURL('image/png')
       const a = document.createElement('a')
       a.download = 'gradient.png'
       a.href = url
       a.click()
       showToast('PNG saved!')
     } catch {
-      showToast('Enable "preserveDrawingBuffer" to export')
+      showToast('Export failed')
     }
   }, [])
 
@@ -211,37 +195,23 @@ export default function App() {
       x: p.x,
       y: p.y,
       size: p.size,
+      enabled: true,
     }))
     setPoints(newPts)
     setActivePresetId(preset.id)
     setGalleryOpen(false)
   }
 
-  /* ─── drag ─── */
-  function onPointerDown(id: string) {
-    setDragId(id)
-  }
-
-  function onPointerMove(e: React.PointerEvent) {
-    if (!dragId) return
-    const el = stageRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    const x = clamp01((e.clientX - rect.left) / rect.width)
-    const y = clamp01((e.clientY - rect.top) / rect.height)
-    setPoints((prev) =>
-      prev.map((p) => (p.id === dragId ? { ...p, x, y } : p)),
-    )
-    setActivePresetId(null)
-  }
-
-  function onPointerUp() {
-    setDragId(null)
-  }
-
   /* ─── point actions ─── */
   function updatePoint(id: string, patch: Partial<MeshPoint>) {
     setPoints((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
+    setActivePresetId(null)
+  }
+
+  function toggleEnabled(id: string) {
+    setPoints((prev) =>
+      prev.map((p) => p.id === id ? { ...p, enabled: p.enabled === false ? true : false } : p)
+    )
     setActivePresetId(null)
   }
 
@@ -252,11 +222,12 @@ export default function App() {
     setPoints((prev) => [
       ...prev,
       {
-        id: `p_${nextSeed}_${prev.length}_${Math.round(rnd() * 1e9)}`,
-        color: hslToHex(rnd() * 360, 66 + rnd() * 14, 72 + (rnd() - 0.5) * 10),
+        id: `p_${nextSeed}_${prev.length}`,
+        color: hslToHex(rnd() * 360, 64 + rnd() * 16, 68 + (rnd() - 0.5) * 12),
         x: 0.15 + rnd() * 0.7,
         y: 0.15 + rnd() * 0.7,
         size: 0.45,
+        enabled: true,
       },
     ])
     setActivePresetId(null)
@@ -270,18 +241,27 @@ export default function App() {
   function randomize() {
     const nextSeed = Math.floor(Math.random() * 1e9)
     setSeed(nextSeed)
-    setPoints(newPoints(nextSeed, points.length))
+    const rnd = mulberry32(nextSeed)
+    const colors = randomPastelPalette(rnd, points.length)
+    setPoints((prev) =>
+      prev.map((p, i) => ({
+        ...p,
+        color: colors[i],
+        x: 0.12 + rnd() * 0.76,
+        y: 0.12 + rnd() * 0.76,
+      }))
+    )
     setActivePresetId(null)
   }
 
   async function copyCss() {
     await navigator.clipboard.writeText(exportCss)
-    showToast('CSS copied to clipboard!')
+    showToast('CSS copied!')
   }
 
   function openColorPicker(id: string) {
     const p = points.find((x) => x.id === id)
-    if (!p) return
+    if (!p || p.enabled === false) return
     setActiveColorId(id)
     const input = colorInputRef.current
     if (!input) return
@@ -301,49 +281,14 @@ export default function App() {
   return (
     <div className="app">
       {/* ── gradient stage ── */}
-      <div
-        className="stage"
-        ref={stageRef}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onPointerLeave={onPointerUp}
-      >
+      <div className="stage" ref={stageRef}>
         <WaveCanvas className="stageCanvas" points={points} />
-
-        {/* draggable color handles */}
-        <div className="handles" aria-hidden="true">
-          {points.map((p) => (
-            <div
-              key={p.id}
-              className="handleWrap"
-              style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
-            >
-              <button
-                className="handle"
-                onPointerDown={() => onPointerDown(p.id)}
-                onClick={() => openColorPicker(p.id)}
-                title={`${p.color} — drag to move, click to change color`}
-              />
-              <button
-                className="handleLabel"
-                onClick={() => openColorPicker(p.id)}
-              >
-                {p.color.toUpperCase()}
-              </button>
-            </div>
-          ))}
-        </div>
 
         {/* ── top bar ── */}
         <header className="topBar">
           <span className="topBarTitle">Gradient</span>
           <nav className="topBarActions">
-            <button
-              className="topBtn"
-              onClick={() => setGalleryOpen(true)}
-              title="Open presets gallery"
-            >
+            <button className="topBtn" onClick={() => setGalleryOpen(true)}>
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
                 <rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/>
                 <rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor"/>
@@ -352,18 +297,14 @@ export default function App() {
               </svg>
               Presets
             </button>
-            <button className="topBtn" onClick={copyCss} title="Copy gradient CSS">
+            <button className="topBtn" onClick={copyCss}>
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
                 <rect x="5" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
                 <rect x="2" y="4.5" width="9" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" fill="rgba(255,255,255,0.08)"/>
               </svg>
               Copy CSS
             </button>
-            <button
-              className="topBtn topBtn--accent"
-              onClick={handleExport}
-              title="Download as PNG"
-            >
+            <button className="topBtn topBtn--accent" onClick={handleExport}>
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
                 <path d="M8 2v8M5 7.5l3 3 3-3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M2 13h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
@@ -375,20 +316,30 @@ export default function App() {
 
         {/* ── color palette panel ── */}
         <div className="colorPanel">
-          {points.map((p) => (
-            <div key={p.id} className="colorItem">
-              <button
-                className="colorSwatch"
-                style={{ background: p.color }}
-                onClick={() => openColorPicker(p.id)}
-                title="Выбрать цвет"
-              />
-              <ColorHexInput
-                color={p.color}
-                onChange={(c) => updatePoint(p.id, { color: c })}
-              />
-            </div>
-          ))}
+          {points.map((p) => {
+            const off = p.enabled === false
+            return (
+              <div key={p.id} className={`colorItem${off ? ' colorItem--off' : ''}`}>
+                <button
+                  className="colorSwatch"
+                  style={{ background: p.color }}
+                  onClick={() => openColorPicker(p.id)}
+                  title={off ? 'Disabled' : p.color}
+                />
+                <ColorHexInput
+                  color={p.color}
+                  disabled={off}
+                  onChange={(c) => updatePoint(p.id, { color: c })}
+                />
+                {/* on/off toggle dot */}
+                <button
+                  className={`colorDot${off ? '' : ' colorDot--on'}`}
+                  onClick={() => toggleEnabled(p.id)}
+                  title={off ? 'Enable' : 'Disable'}
+                />
+              </div>
+            )
+          })}
         </div>
 
         {/* ── bottom toolbar ── */}
@@ -400,67 +351,41 @@ export default function App() {
             Randomize
           </button>
           <span className="toolSep" />
-          <button
-            className="toolBtn"
-            onClick={addPoint}
-            disabled={points.length >= 8}
-            title="Add color point"
-          >
+          <button className="toolBtn" onClick={addPoint} disabled={points.length >= 8}>
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M8 5v6M5 8h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
-            Add point
+            Add
           </button>
-          <button
-            className="toolBtn toolBtn--ghost"
-            onClick={removeLastPoint}
-            disabled={points.length <= 2}
-            title="Remove last point"
-          >
+          <button className="toolBtn toolBtn--ghost" onClick={removeLastPoint} disabled={points.length <= 2}>
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M5 8h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </button>
           <span className="toolSep" />
-          <span className="toolCount">{points.length} pts</span>
+          <span className="toolCount">{points.filter(p => p.enabled !== false).length} / {points.length}</span>
         </footer>
       </div>
 
       {/* ── gallery overlay ── */}
       <div
         className={`galleryOverlay${galleryOpen ? ' galleryOverlay--open' : ''}`}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) setGalleryOpen(false)
-        }}
+        onClick={(e) => { if (e.target === e.currentTarget) setGalleryOpen(false) }}
       >
         <div className="galleryPanel">
           <div className="galleryHeader">
             <h2 className="galleryTitle">Presets</h2>
-            <button
-              className="galleryClose"
-              onClick={() => setGalleryOpen(false)}
-              title="Close"
-            >
+            <button className="galleryClose" onClick={() => setGalleryOpen(false)}>
               <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                <path
-                  d="M1 1l12 12M13 1L1 13"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                />
+                <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
               </svg>
             </button>
           </div>
           <div className="galleryGrid">
             {PRESETS.map((p) => (
-              <PresetCard
-                key={p.id}
-                preset={p}
-                active={activePresetId === p.id}
-                onClick={() => applyPreset(p)}
-              />
+              <PresetCard key={p.id} preset={p} active={activePresetId === p.id} onClick={() => applyPreset(p)} />
             ))}
           </div>
         </div>
@@ -478,7 +403,6 @@ export default function App() {
         onBlur={() => setActiveColorId(null)}
       />
 
-      {/* ── toast ── */}
       <Toast message={toast.message} visible={toast.visible} />
     </div>
   )
