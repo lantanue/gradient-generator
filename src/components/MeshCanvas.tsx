@@ -65,10 +65,10 @@ float fbm(vec2 p) {
 }
 
 vec2 warp(vec2 uv, float t) {
-  // two-stage domain warp to get the “ridges” seen on the reference
   float k1 = 1.0;
   float k2 = 2.2;
-  vec2 p = uv * 3.1;
+  // lower scale → broader, more sweeping S-curves (was 3.1)
+  vec2 p = uv * 2.4;
   vec2 q = vec2(
     fbm(p + vec2(0.0, 0.0) + t * 0.03),
     fbm(p + vec2(5.2, 1.3) - t * 0.028)
@@ -77,8 +77,8 @@ vec2 warp(vec2 uv, float t) {
     fbm(p * k2 + q * 2.0 + vec2(1.7, 9.2) + t * 0.02),
     fbm(p * k2 + q * 2.0 + vec2(8.3, 2.8) - t * 0.018)
   );
-  // much stronger for visible “liquid” flow
-  return uv + (q * 2.0 - 1.0) * 0.12 * k1 + (r * 2.0 - 1.0) * 0.095;
+  // doubled amplitude → long liquid flow lines (was 0.12 / 0.095)
+  return uv + (q * 2.0 - 1.0) * 0.22 * k1 + (r * 2.0 - 1.0) * 0.18;
 }
 
 void main() {
@@ -89,10 +89,12 @@ void main() {
   vec2 asp = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 wuv = warp(uv, t);
   // secondary micro-warp to create “refractive” bands
+  // stronger micro-warp for refractive bands (was 0.012)
   float micro = fbm(wuv * 10.0 + vec2(t * 0.04, -t * 0.03));
-  wuv += (micro * 2.0 - 1.0) * 0.012;
+  wuv += (micro * 2.0 - 1.0) * 0.022;
 
-  vec3 col = vec3(0.965, 0.985, 0.995); // airy base
+  // pure IDW blending — no white base that washes out colors
+  vec3 col = vec3(0.0);
   float wsum = 0.0;
   float field = 0.0;
 
@@ -100,7 +102,8 @@ void main() {
     if (i >= u_pointCount) break;
     vec2 p = u_points[i];
     float s = clamp(u_sizes[i], 0.05, 1.0);
-    float sigma = mix(0.14, 0.36, s);
+    // larger sigma → colors fill the whole canvas richly (was mix(0.14, 0.36, s))
+    float sigma = mix(0.28, 0.55, s);
     vec2 d = (wuv - p) * asp;
     float dist2 = dot(d, d);
     float w = exp(-dist2 / (2.0 * sigma * sigma));
@@ -109,7 +112,8 @@ void main() {
     field += w;
   }
 
-  col /= (1.0 + wsum);
+  // divide by accumulated weight only — pure weighted average
+  col /= max(wsum, 0.0001);
 
   // “liquid” edge definition:
   // - local field gradient creates thin flow lines at boundaries

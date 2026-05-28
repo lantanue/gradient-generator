@@ -1,5 +1,46 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { MeshCanvas, type MeshPoint } from './components/MeshCanvas'
+
+/* ─── color hex input ──────────────────────────────────────── */
+function ColorHexInput({
+  color,
+  onChange,
+}: {
+  color: string
+  onChange: (c: string) => void
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+
+  // sync when color changes externally (e.g. from native color picker)
+  useEffect(() => {
+    if (ref.current && document.activeElement !== ref.current) {
+      ref.current.value = color.toUpperCase()
+    }
+  }, [color])
+
+  return (
+    <input
+      ref={ref}
+      className="colorHexInput"
+      defaultValue={color.toUpperCase()}
+      maxLength={7}
+      spellCheck={false}
+      onChange={(e) => {
+        if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+          onChange(e.target.value)
+        }
+      }}
+      onBlur={(e) => {
+        if (!/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+          e.target.value = color.toUpperCase()
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+      }}
+    />
+  )
+}
+import { WaveCanvas, type MeshPoint } from './components/WaveCanvas'
 import { PRESETS, type Preset } from './presets'
 
 /* ─── helpers ──────────────────────────────────────────────── */
@@ -268,7 +309,7 @@ export default function App() {
         onPointerCancel={onPointerUp}
         onPointerLeave={onPointerUp}
       >
-        <MeshCanvas className="stageCanvas" points={points} />
+        <WaveCanvas className="stageCanvas" points={points} />
 
         {/* draggable color handles */}
         <div className="handles" aria-hidden="true">
@@ -331,6 +372,24 @@ export default function App() {
             </button>
           </nav>
         </header>
+
+        {/* ── color palette panel ── */}
+        <div className="colorPanel">
+          {points.map((p) => (
+            <div key={p.id} className="colorItem">
+              <button
+                className="colorSwatch"
+                style={{ background: p.color }}
+                onClick={() => openColorPicker(p.id)}
+                title="Выбрать цвет"
+              />
+              <ColorHexInput
+                color={p.color}
+                onChange={(c) => updatePoint(p.id, { color: c })}
+              />
+            </div>
+          ))}
+        </div>
 
         {/* ── bottom toolbar ── */}
         <footer className="toolbar">

@@ -408,6 +408,74 @@ button {
   transform: translateX(-50%) translateY(0);
 }
 
+/* ── color palette panel ───────────────────────────────────── */
+
+.colorPanel {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(10, 10, 20, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  align-items: flex-end;
+}
+
+.colorItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.colorSwatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.13s ease, border-color 0.13s, box-shadow 0.13s;
+  flex-shrink: 0;
+}
+
+.colorSwatch:hover {
+  transform: scale(1.15) translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.colorHexInput {
+  width: 52px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 9.5px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  padding: 4px 0;
+  text-align: center;
+  letter-spacing: 0.4px;
+  transition: border-color 0.13s, color 0.13s, background 0.13s;
+}
+
+.colorHexInput:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.colorHexInput:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.95);
+}
+
 /* ── hidden inputs ─────────────────────────────────────────── */
 
 .hiddenInput {
