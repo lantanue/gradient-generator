@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { WaveCanvas, type MeshPoint } from './components/WaveCanvas'
+import { MeshCanvas, type MeshPoint } from './components/MeshCanvas'
 import { PRESETS, type Preset } from './presets'
 
 /* ─── default palette ──────────────────────────────────────── */
 
 const DEFAULT_POINTS: MeshPoint[] = [
-  { id: 'a', color: '#FFBC25', x: 0.22, y: 0.24, size: 0.60, enabled: true },
-  { id: 'b', color: '#FF773D', x: 0.74, y: 0.70, size: 0.55, enabled: true },
-  { id: 'c', color: '#3CBBCE', x: 0.76, y: 0.22, size: 0.52, enabled: true },
-  { id: 'd', color: '#405FF5', x: 0.24, y: 0.76, size: 0.65, enabled: true },
+  { id: 'a', color: '#FFBC25', x: 0.18, y: 0.22, size: 0.55, enabled: true }, // yellow   — top-left
+  { id: 'b', color: '#FF773D', x: 0.22, y: 0.72, size: 0.52, enabled: true }, // orange   — bottom-left
+  { id: 'c', color: '#3CBBCE', x: 0.80, y: 0.25, size: 0.50, enabled: true }, // cyan     — top-right
+  { id: 'd', color: '#405FF5', x: 0.76, y: 0.76, size: 0.60, enabled: true }, // blue     — bottom-right
 ]
 
 /* ─── color hex input ──────────────────────────────────────── */
@@ -282,7 +282,7 @@ export default function App() {
     <div className="app">
       {/* ── gradient stage ── */}
       <div className="stage" ref={stageRef}>
-        <WaveCanvas className="stageCanvas" points={points} />
+        <MeshCanvas className="stageCanvas" points={points} />
 
         {/* ── top bar ── */}
         <header className="topBar">

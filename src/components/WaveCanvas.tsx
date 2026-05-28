@@ -17,57 +17,128 @@ function rgba(hex: string, a: number) {
   return `rgba(${r},${g},${b},${a})`
 }
 
-function blendColors(colors: string[]): string {
-  if (!colors.length) return '#0a0a1a'
-  const rgb = colors.map(hexToRgb)
-  const r = rgb.reduce((s, c) => s + c[0], 0) / rgb.length
-  const g = rgb.reduce((s, c) => s + c[1], 0) / rgb.length
-  const b = rgb.reduce((s, c) => s + c[2], 0) / rgb.length
-  // darken the blend so it reads as a deep background
-  return `rgb(${Math.round(r * 0.45)},${Math.round(g * 0.45)},${Math.round(b * 0.45)})`
+/* ─── smooth ribbon path ────────────────────────────────────── */
+// Quadratic bezier through midpoints → no sharp kinks
+
+function traceEdge(
+  ctx: CanvasRenderingContext2D,
+  pts: [number, number][],
+  move: boolean,
+) {
+  if (move) ctx.moveTo(pts[0][0], pts[0][1])
+  else ctx.lineTo(pts[0][0], pts[0][1])
+  for (let i = 0; i < pts.length - 1; i++) {
+    const mx = (pts[i][0] + pts[i + 1][0]) / 2
+    const my = (pts[i][1] + pts[i + 1][1]) / 2
+    ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my)
+  }
+  ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1])
 }
 
-/* ─── wave path ────────────────────────────────────────────── */
-
-function buildWavePath(
+function drawRibbon(
   ctx: CanvasRenderingContext2D,
-  W: number,
-  H: number,
-  yOffset: number,
-  amplitude: number,
-  frequency: number,
-  phase: number,
-  thickness: number,
-  t: number,
-  speed: number,
+  top: [number, number][],
+  bot: [number, number][],
 ) {
-  const steps = 120
-  const top: [number, number][] = []
-  const bot: [number, number][] = []
-
-  for (let i = 0; i <= steps; i++) {
-    const nx = i / steps
-    const x = nx * W
-    const baseY =
-      yOffset +
-      amplitude * Math.sin(frequency * nx * Math.PI * 2 + phase + t * speed) +
-      amplitude * 0.35 * Math.sin(frequency * 1.7 * nx * Math.PI * 2 + phase * 1.4 + t * speed * 0.6)
-    const half = (thickness * 0.5) * H
-    top.push([x, baseY * H - half])
-    bot.push([x, baseY * H + half])
-  }
-
   ctx.beginPath()
-  ctx.moveTo(top[0][0], top[0][1])
-  for (let i = 1; i < top.length; i++) ctx.lineTo(top[i][0], top[i][1])
-  for (let i = bot.length - 1; i >= 0; i--) ctx.lineTo(bot[i][0], bot[i][1])
+  traceEdge(ctx, top, true)                          // left → right on top
+  ctx.lineTo(bot[bot.length - 1][0], bot[bot.length - 1][1])
+  traceEdge(ctx, [...bot].reverse(), false)          // right → left on bottom
   ctx.closePath()
 }
 
-/* ─── renderer ─────────────────────────────────────────────── */
+/* ─── single silk band ──────────────────────────────────────── */
 
-const PHI = 1.6180339887   // golden ratio — keeps x/y frequencies incommensurable
-const DRIFT = 0.13          // max drift radius as fraction of canvas
+function drawSilkBand(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  p: MeshPoint & { x: number; y: number },
+  i: number,
+  t: number,
+) {
+  const STEPS     = 72
+  const amplitude = 0.068 + p.size * 0.052
+  const frequency = 0.82 + (i % 4) * 0.30
+  const speed     = 0.09  + i * 0.020
+  const phase     = p.x * Math.PI * 2
+  const halfH     = (0.10 + p.size * 0.115) * H   // half-thickness in px
+
+  /* centerline */
+  const centers: [number, number][] = []
+  for (let k = 0; k <= STEPS; k++) {
+    const nx = k / STEPS
+    const ny =
+      p.y +
+      amplitude * Math.sin(frequency * nx * Math.PI * 2 + phase + t * speed) +
+      amplitude * 0.30 * Math.sin(frequency * 1.87 * nx * Math.PI * 2 + phase * 1.45 + t * speed * 0.62) +
+      amplitude * 0.11 * Math.sin(frequency * 2.71 * nx * Math.PI * 2 + phase * 0.77 + t * speed * 1.08)
+    centers.push([nx * W, Math.max(-halfH, Math.min(H + halfH, ny * H))])
+  }
+
+  const top  = centers.map(([x, y]) => [x, y - halfH]  as [number, number])
+  const bot  = centers.map(([x, y]) => [x, y + halfH]  as [number, number])
+  const midY = centers[Math.floor(STEPS / 2)][1]
+
+  const [r, g, b] = hexToRgb(p.color)
+  const bri = (v: number, d: number) => Math.min(255, v + d)
+  const dim = (v: number, d: number) => Math.max(0, v - d)
+
+  /* ── band body: cylindrical shading ── */
+  ctx.save()
+  ctx.filter = 'blur(2px)'
+  drawRibbon(ctx, top, bot)
+
+  const cyl = ctx.createLinearGradient(0, midY - halfH, 0, midY + halfH)
+  cyl.addColorStop(0.00, `rgba(${dim(r,65)},${dim(g,65)},${dim(b,65)},0.00)`)
+  cyl.addColorStop(0.14, `rgba(${dim(r,35)},${dim(g,35)},${dim(b,35)},0.58)`)
+  cyl.addColorStop(0.36, `rgba(${r},${g},${b},0.92)`)
+  cyl.addColorStop(0.50, `rgba(${bri(r,55)},${bri(g,50)},${bri(b,45)},1.00)`)
+  cyl.addColorStop(0.64, `rgba(${r},${g},${b},0.92)`)
+  cyl.addColorStop(0.86, `rgba(${dim(r,35)},${dim(g,35)},${dim(b,35)},0.58)`)
+  cyl.addColorStop(1.00, `rgba(${dim(r,65)},${dim(g,65)},${dim(b,65)},0.00)`)
+
+  ctx.fillStyle = cyl
+  ctx.fill()
+  ctx.restore()
+
+  /* ── specular shimmer — thin bright stripe that sweeps across ── */
+  ctx.save()
+  ctx.filter = 'blur(1.5px)'
+
+  const specOff  = halfH * -0.22      // slightly above center
+  const specHalf = halfH * 0.052      // very thin
+  const specTop  = centers.map(([x, y]) => [x, y + specOff - specHalf] as [number, number])
+  const specBot  = centers.map(([x, y]) => [x, y + specOff + specHalf] as [number, number])
+  drawRibbon(ctx, specTop, specBot)
+
+  // highlight sweep: x position oscillates slowly across width
+  const sweepX = ((Math.sin(t * 0.26 + i * 1.571) + 1) * 0.5) * W
+  const shimmer = ctx.createLinearGradient(sweepX - W * 0.32, 0, sweepX + W * 0.32, 0)
+  shimmer.addColorStop(0,   'rgba(255,255,255,0.00)')
+  shimmer.addColorStop(0.45,'rgba(255,255,255,0.75)')
+  shimmer.addColorStop(0.55,'rgba(255,255,255,0.85)')
+  shimmer.addColorStop(1,   'rgba(255,255,255,0.00)')
+
+  ctx.fillStyle = shimmer
+  ctx.globalAlpha = 0.88
+  ctx.fill()
+  ctx.restore()
+
+  /* ── soft edge glow ── */
+  ctx.save()
+  ctx.filter = 'blur(18px)'
+  drawRibbon(ctx, top, bot)
+  ctx.globalAlpha = 0.18
+  ctx.fillStyle = rgba(p.color, 1)
+  ctx.fill()
+  ctx.restore()
+}
+
+/* ─── full scene renderer ───────────────────────────────────── */
+
+const PHI   = 1.6180339887
+const DRIFT = 0.12
 
 function render(
   ctx: CanvasRenderingContext2D,
@@ -76,96 +147,50 @@ function render(
   points: MeshPoint[],
   t: number,
 ) {
-  /* ── filter disabled + animate positions ── */
+  /* filter disabled + drift animation */
   const active = points.filter(p => p.enabled !== false)
-  if (!active.length) {
-    ctx.clearRect(0, 0, W, H)
-    ctx.fillStyle = '#0a0a1a'
-    ctx.fillRect(0, 0, W, H)
-    return
-  }
 
-  // Each point drifts around its home (x, y) using two sine waves with
-  // incommensurable frequencies so the path never exactly repeats.
-  const pts = active.map((p, i) => {
-    const f  = 0.05 + i * 0.011                      // Hz, ~18-12 s period
-    const ax = p.x + Math.sin(Math.PI * 2 * f       * t + i * 2.4) * DRIFT
-    const ay = p.y + Math.cos(Math.PI * 2 * f * PHI * t + i * 1.6) * DRIFT
-    return {
-      ...p,
-      x: Math.max(0.04, Math.min(0.96, ax)),
-      y: Math.max(0.04, Math.min(0.96, ay)),
-    }
-  })
-
-  ctx.clearRect(0, 0, W, H)
-  const colors = pts.map(p => p.color)
-
-  /* ── 1. Background ── */
-  ctx.fillStyle = blendColors(colors)
+  /* near-black background — lets colors read as metal/silk */
+  ctx.fillStyle = '#07070e'
   ctx.fillRect(0, 0, W, H)
 
-  /* ── 2. Glow blobs (behind waves) ── */
-  ctx.save()
-  ctx.filter = 'blur(60px)'
-  pts.forEach((p, i) => {
-    const phase = i * 1.2 + t * 0.15
-    const bx = (p.x + Math.sin(phase) * 0.05) * W
-    const by = (p.y + Math.cos(phase * 0.8) * 0.04) * H
-    const rx = (0.25 + p.size * 0.2) * W
-    const ry = (0.18 + p.size * 0.15) * H
+  if (!active.length) return
 
-    ctx.globalAlpha = 0.70
+  const pts = active.map((p, i) => {
+    const f  = 0.05 + i * 0.011
+    const ax = p.x + Math.sin(Math.PI * 2 * f       * t + i * 2.4) * DRIFT
+    const ay = p.y + Math.cos(Math.PI * 2 * f * PHI * t + i * 1.6) * DRIFT
+    return { ...p, x: Math.max(0.04, Math.min(0.96, ax)), y: Math.max(0.04, Math.min(0.96, ay)) }
+  })
+
+  /* deep ambient glow — color fog far behind the bands */
+  ctx.save()
+  ctx.filter = 'blur(100px)'
+  pts.forEach((p, i) => {
+    ctx.globalAlpha = 0.22
     ctx.beginPath()
-    ctx.ellipse(bx, by, rx, ry, i * 0.4, 0, Math.PI * 2)
+    ctx.ellipse(p.x * W, p.y * H, W * 0.48, H * 0.40, i * 0.5, 0, Math.PI * 2)
     ctx.fillStyle = rgba(p.color, 1)
     ctx.fill()
   })
   ctx.restore()
 
-  /* ── 3. Wave ribbons ── */
-  pts.forEach((p, i) => {
-    const phase     = p.x * Math.PI * 2
-    const yOffset   = p.y
-    const amplitude = 0.06 + p.size * 0.07
-    const thickness = 0.08 + p.size * 0.10
-    const frequency = 1.2 + (i % 3) * 0.4
-    const speed     = 0.18 + i * 0.03
+  /* silk bands — drawn back to front */
+  pts.forEach((p, i) => drawSilkBand(ctx, W, H, p, i, t))
 
-    ctx.save()
-    ctx.filter = 'blur(6px)'
-    buildWavePath(ctx, W, H, yOffset, amplitude, frequency, phase, thickness, t, speed)
-
-    const cy = yOffset * H
-    const grad = ctx.createLinearGradient(0, cy - thickness * H * 0.55, 0, cy + thickness * H * 0.55)
-    grad.addColorStop(0,   rgba(p.color, 0))
-    grad.addColorStop(0.3, rgba(p.color, 0.55))
-    grad.addColorStop(0.5, rgba(p.color, 0.85))
-    grad.addColorStop(0.7, rgba(p.color, 0.55))
-    grad.addColorStop(1,   rgba(p.color, 0))
-    ctx.fillStyle = grad
-    ctx.globalAlpha = 0.9
-    ctx.fill()
-    ctx.restore()
-  })
-
-  /* ── 4. Atmospheric overlays ── */
-  ctx.save()
-  ctx.filter = 'blur(45px)'
-  ctx.globalAlpha = 0.28
-  pts.forEach((p, i) => {
-    if (i % 2 !== 0) return
-    const ox = (p.x + Math.cos(t * 0.1 + i) * 0.08) * W
-    const oy = (p.y + Math.sin(t * 0.12 + i) * 0.08) * H
-    ctx.beginPath()
-    ctx.ellipse(ox, oy, W * 0.35, H * 0.28, i * 0.6, 0, Math.PI * 2)
-    ctx.fillStyle = rgba(p.color, 1)
-    ctx.fill()
-  })
-  ctx.restore()
+  /* vignette — darkens edges slightly for depth */
+  const vig = ctx.createRadialGradient(
+    W * 0.5, H * 0.48, Math.min(W, H) * 0.18,
+    W * 0.5, H * 0.48, Math.max(W, H) * 0.92,
+  )
+  vig.addColorStop(0, 'rgba(0,0,0,0.00)')
+  vig.addColorStop(0.65, 'rgba(0,0,0,0.00)')
+  vig.addColorStop(1, 'rgba(0,0,0,0.52)')
+  ctx.fillStyle = vig
+  ctx.fillRect(0, 0, W, H)
 }
 
-/* ─── component ────────────────────────────────────────────── */
+/* ─── component ─────────────────────────────────────────────── */
 
 export function WaveCanvas({
   points,
@@ -189,8 +214,8 @@ export function WaveCanvas({
     function resize() {
       if (!canvas) return
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
-      const w = canvas.clientWidth
-      const h = canvas.clientHeight
+      const w   = canvas.clientWidth
+      const h   = canvas.clientHeight
       if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
         canvas.width  = Math.round(w * dpr)
         canvas.height = Math.round(h * dpr)
@@ -199,23 +224,19 @@ export function WaveCanvas({
     }
 
     const start = performance.now()
-    const onResize = () => resize()
-    window.addEventListener('resize', onResize)
+    window.addEventListener('resize', resize)
 
     const frame = () => {
       resize()
       const t = (performance.now() - start) / 1000
-      const W = canvas.clientWidth
-      const H = canvas.clientHeight
-      render(ctx!, W, H, pointsRef.current, t)
+      render(ctx!, canvas.clientWidth, canvas.clientHeight, pointsRef.current, t)
       rafRef.current = requestAnimationFrame(frame)
     }
-
     rafRef.current = requestAnimationFrame(frame)
 
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      window.removeEventListener('resize', onResize)
+      window.removeEventListener('resize', resize)
     }
   }, [])
 
