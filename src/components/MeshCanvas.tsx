@@ -225,7 +225,7 @@ export function MeshCanvas({
       const h   = Math.max(1, Math.floor(canvas.clientHeight * dpr))
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w; canvas.height = h
-        gl.viewport(0, 0, w, h)
+        gl!.viewport(0, 0, w, h)
       }
     }
 
