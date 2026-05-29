@@ -2,6 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MeshCanvas, type MeshPoint } from './components/MeshCanvas'
 import { PRESETS, type Preset } from './presets'
 
+/* ─── brand palette ────────────────────────────────────────── */
+
+// Randomizer and "add" always pick from these colours.
+// White/dark are the only neutral additions allowed.
+const BRAND_PALETTE = [
+  '#FFBC25', // yellow
+  '#FF773D', // orange
+  '#3CBBCE', // cyan
+  '#405FF5', // blue
+  '#FFFFFF', // white  — optional bright accent
+  '#181828', // dark   — optional deep shadow
+]
+
 /* ─── default palette ──────────────────────────────────────── */
 
 const DEFAULT_POINTS: MeshPoint[] = [
@@ -219,14 +232,15 @@ export default function App() {
     const nextSeed = (seed + 1) | 0
     const rnd = mulberry32(nextSeed)
     setSeed(nextSeed)
+    const color = BRAND_PALETTE[Math.floor(rnd() * BRAND_PALETTE.length)]
     setPoints((prev) => [
       ...prev,
       {
         id: `p_${nextSeed}_${prev.length}`,
-        color: hslToHex(rnd() * 360, 64 + rnd() * 16, 68 + (rnd() - 0.5) * 12),
-        x: 0.15 + rnd() * 0.7,
-        y: 0.15 + rnd() * 0.7,
-        size: 0.45,
+        color,
+        x: 0.12 + rnd() * 0.76,
+        y: 0.12 + rnd() * 0.76,
+        size: 0.50,
         enabled: true,
       },
     ])
@@ -242,14 +256,22 @@ export default function App() {
     const nextSeed = Math.floor(Math.random() * 1e9)
     setSeed(nextSeed)
     const rnd = mulberry32(nextSeed)
-    const colors = randomPastelPalette(rnd, points.length)
+    // Pick brand colours (no repeats of last used colour for variety)
+    const palette = [...BRAND_PALETTE]
     setPoints((prev) =>
-      prev.map((p, i) => ({
-        ...p,
-        color: colors[i],
-        x: 0.12 + rnd() * 0.76,
-        y: 0.12 + rnd() * 0.76,
-      }))
+      prev.map((p) => {
+        // pick a colour that's different from the current one when possible
+        const choices = palette.filter(c => c !== p.color)
+        const pool = choices.length > 0 ? choices : palette
+        const color = pool[Math.floor(rnd() * pool.length)]
+        return {
+          ...p,
+          color,
+          enabled: true,
+          x: 0.10 + rnd() * 0.80,
+          y: 0.10 + rnd() * 0.80,
+        }
+      })
     )
     setActivePresetId(null)
   }
@@ -340,6 +362,15 @@ export default function App() {
               </div>
             )
           })}
+
+          {/* add colour button */}
+          {points.length < 8 && (
+            <button className="colorAddBtn" onClick={addPoint} title="Add colour">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* ── bottom toolbar ── */}

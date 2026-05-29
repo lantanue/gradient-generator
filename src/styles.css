@@ -476,6 +476,30 @@ button {
   color: rgba(255, 255, 255, 0.95);
 }
 
+/* ── color add button ──────────────────────────────────────── */
+
+.colorAddBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.28);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.40);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  align-self: flex-start;
+  transition: border-color 0.14s, color 0.14s, background 0.14s;
+}
+
+.colorAddBtn:hover {
+  border-color: rgba(255, 255, 255, 0.65);
+  color: rgba(255, 255, 255, 0.90);
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* ── color toggle dot ──────────────────────────────────────── */
 
 .colorDot {
