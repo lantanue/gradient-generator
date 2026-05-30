@@ -1,8 +1,11 @@
 /* Brand-color combos.
- * Each preset has 5 slots. Each slot picks a brand color via `colorIndex`
- * (0 = Yellow, 1 = Orange, 2 = Cyan, 3 = Blue, 4 = White). Colors can
- * repeat — e.g. a sunny preset can use [Yellow, Yellow, Orange, Yellow, White].
- * weight = 0 means that slot is inactive (skip it). */
+ * Each preset has up to MAX_SLOTS (8) slots. Each slot picks a brand
+ * color via `colorIndex` (0 = Yellow, 1 = Orange, 2 = Cyan, 3 = Blue,
+ * 4 = White). Colors can repeat — e.g. a sunny preset can use
+ * [Yellow, Yellow, Orange, Yellow, White].
+ * weight = 0 means that slot is inactive (skip it).
+ * Presets with fewer than 8 slots are padded with inactive entries
+ * when applied. */
 
 export type PresetSlot = {
   colorIndex: number
@@ -14,7 +17,7 @@ export type PresetSlot = {
 export type Preset = {
   id: string
   name: string
-  slots: [PresetSlot, PresetSlot, PresetSlot, PresetSlot, PresetSlot]
+  slots: PresetSlot[]
 }
 
 export const PRESETS: Preset[] = [

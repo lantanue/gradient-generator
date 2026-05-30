@@ -7,12 +7,18 @@ import { BRAND_PALETTE } from './brand'
 
 type Slot = { colorIndex: number; x: number; y: number; weight: number }
 
+/** Total color slots. Mirrors MAX_POINTS in the WebGL shader. */
+const MAX_SLOTS = 8
+
 const DEFAULT_SLOTS: Slot[] = [
   { colorIndex: 0, x: 0.18, y: 0.22, weight: 62 },
   { colorIndex: 1, x: 0.22, y: 0.72, weight: 55 },
   { colorIndex: 2, x: 0.80, y: 0.25, weight: 55 },
   { colorIndex: 3, x: 0.76, y: 0.76, weight: 68 },
   { colorIndex: 4, x: 0.50, y: 0.50, weight: 22 },
+  { colorIndex: 0, x: 0.50, y: 0.16, weight: 28 },
+  { colorIndex: 3, x: 0.16, y: 0.50, weight: 26 },
+  { colorIndex: 1, x: 0.84, y: 0.50, weight: 28 },
 ]
 
 /* ─── helpers ──────────────────────────────────────────────── */
@@ -61,13 +67,13 @@ function nearby(cx: number, cy: number, jitter: number, rnd: () => number) {
   }
 }
 
-/** Combine an array of [role, position] pairs into 5 slots, filling the rest with 'none'. */
+/** Combine an array of [role, position] pairs into MAX_SLOTS, filling the rest with 'none'. */
 function buildSlots(
   entries: Array<{ role: Role; x: number; y: number }>,
   rnd: () => number,
 ): Slot[] {
   const padded: Slot[] = []
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < MAX_SLOTS; i++) {
     if (i < entries.length) {
       padded.push({
         colorIndex: pickColor(rnd),
@@ -94,7 +100,9 @@ function cornerBloomCombo(rnd: () => number): Slot[] {
     { role: 'accent',   ...nearby(opp.x, opp.y, 0.18, rnd) },
     { role: 'accent',   ...nearby(opp.x, opp.y, 0.25, rnd) },
     { role: 'accent',   x: 0.30 + rnd() * 0.40, y: 0.30 + rnd() * 0.40 },
-    { role: rnd() < 0.5 ? 'whisper' : 'none', x: 0.10 + rnd() * 0.80, y: 0.10 + rnd() * 0.80 },
+    { role: 'whisper',  x: 0.10 + rnd() * 0.80, y: 0.10 + rnd() * 0.80 },
+    { role: 'whisper',  ...nearby(c.x, c.y, 0.35, rnd) },
+    { role: rnd() < 0.5 ? 'whisper' : 'none', x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
   ], rnd)
 }
 
@@ -103,12 +111,17 @@ function diagonalCombo(rnd: () => number): Slot[] {
   const flip = rnd() < 0.5
   const a = flip ? { x: -0.05, y: -0.05 } : { x: 1.05, y: -0.05 }
   const b = flip ? { x: 1.05, y: 1.05 } : { x: -0.05, y: 1.05 }
+  // midpoint of the diagonal
+  const mx = (a.x + b.x) * 0.5
+  const my = (a.y + b.y) * 0.5
   return buildSlots([
     { role: 'dominant', ...nearby(a.x, a.y, 0.16, rnd) },
     { role: 'dominant', ...nearby(b.x, b.y, 0.16, rnd) },
     { role: 'accent',   x: 0.4 + rnd() * 0.2, y: 0.4 + rnd() * 0.2 },
     { role: 'accent',   x: 0.3 + rnd() * 0.4, y: 0.3 + rnd() * 0.4 },
-    { role: rnd() < 0.6 ? 'whisper' : 'none', x: 0.2 + rnd() * 0.6, y: 0.2 + rnd() * 0.6 },
+    { role: 'accent',   ...nearby(mx, my, 0.18, rnd) },
+    { role: 'whisper',  ...nearby(a.x, a.y, 0.35, rnd) },
+    { role: rnd() < 0.6 ? 'whisper' : 'none', ...nearby(b.x, b.y, 0.35, rnd) },
   ], rnd)
 }
 
@@ -118,7 +131,9 @@ function centerFocusCombo(rnd: () => number): Slot[] {
     { role: 'accent',   ...nearby(0.10 + rnd() * 0.15, rnd() < 0.5 ? -0.05 : 1.05, 0.10, rnd) },
     { role: 'accent',   ...nearby(0.75 + rnd() * 0.15, rnd() < 0.5 ? -0.05 : 1.05, 0.10, rnd) },
     { role: 'accent',   ...nearby(rnd() < 0.5 ? -0.05 : 1.05, 0.30 + rnd() * 0.40, 0.10, rnd) },
-    { role: rnd() < 0.7 ? 'whisper' : 'none', x: 0.2 + rnd() * 0.6, y: 0.2 + rnd() * 0.6 },
+    { role: 'accent',   ...nearby(rnd() < 0.5 ? -0.05 : 1.05, 0.30 + rnd() * 0.40, 0.10, rnd) },
+    { role: 'whisper',  x: 0.18 + rnd() * 0.64, y: 0.18 + rnd() * 0.64 },
+    { role: rnd() < 0.7 ? 'whisper' : 'none', x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
   ], rnd)
 }
 
@@ -135,8 +150,10 @@ function edgeWashCombo(rnd: () => number): Slot[] {
     { role: 'dominant', ...washPos },
     { role: 'accent',   x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
     { role: 'accent',   x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
+    { role: 'accent',   x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
     { role: 'whisper',  x: 0.15 + rnd() * 0.70, y: 0.15 + rnd() * 0.70 },
-    { role: rnd() < 0.4 ? 'accent' : 'none', x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
+    { role: 'whisper',  x: 0.15 + rnd() * 0.70, y: 0.15 + rnd() * 0.70 },
+    { role: rnd() < 0.4 ? 'accent' : 'whisper', x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
   ], rnd)
 }
 
@@ -149,6 +166,8 @@ function layeredCombo(rnd: () => number): Slot[] {
       { role: 'dominant', x: 0.5 + (rnd() - 0.5) * 0.4, y: split * 0.5 },
       { role: 'dominant', x: 0.5 + (rnd() - 0.5) * 0.4, y: split + (1 - split) * 0.5 },
       { role: 'accent',   x: rnd(), y: split },
+      { role: 'accent',   x: rnd() * 0.4, y: split * 0.5 + (rnd() - 0.5) * 0.2 },
+      { role: 'accent',   x: 0.6 + rnd() * 0.4, y: split + (1 - split) * 0.5 + (rnd() - 0.5) * 0.2 },
       { role: 'whisper',  x: 0.1 + rnd() * 0.8, y: 0.1 + rnd() * 0.8 },
       { role: rnd() < 0.5 ? 'whisper' : 'none', x: 0.1 + rnd() * 0.8, y: 0.1 + rnd() * 0.8 },
     ], rnd)
@@ -157,6 +176,8 @@ function layeredCombo(rnd: () => number): Slot[] {
       { role: 'dominant', x: split * 0.5, y: 0.5 + (rnd() - 0.5) * 0.4 },
       { role: 'dominant', x: split + (1 - split) * 0.5, y: 0.5 + (rnd() - 0.5) * 0.4 },
       { role: 'accent',   x: split, y: rnd() },
+      { role: 'accent',   x: split * 0.5 + (rnd() - 0.5) * 0.2, y: rnd() * 0.4 },
+      { role: 'accent',   x: split + (1 - split) * 0.5 + (rnd() - 0.5) * 0.2, y: 0.6 + rnd() * 0.4 },
       { role: 'whisper',  x: 0.1 + rnd() * 0.8, y: 0.1 + rnd() * 0.8 },
       { role: rnd() < 0.5 ? 'whisper' : 'none', x: 0.1 + rnd() * 0.8, y: 0.1 + rnd() * 0.8 },
     ], rnd)
@@ -164,15 +185,16 @@ function layeredCombo(rnd: () => number): Slot[] {
 }
 
 function constellationCombo(rnd: () => number): Slot[] {
-  // 4-5 medium points scattered widely; one slightly larger
-  const anchorIdx = Math.floor(rnd() * 4)
-  return buildSlots(Array.from({ length: 4 + (rnd() < 0.5 ? 1 : 0) }, (_, i) => ({
-    role: (i === anchorIdx ? 'accent' : 'accent') as Role,
+  // 6-8 medium points scattered widely; one slightly larger as anchor
+  const count = 6 + Math.floor(rnd() * 3)  // 6..8
+  const anchorIdx = Math.floor(rnd() * count)
+  return buildSlots(Array.from({ length: count }, (_, i) => ({
+    role: i === anchorIdx ? ('dominant' as Role)
+        : rnd() < 0.65   ? ('accent'   as Role)
+                         : ('whisper'  as Role),
     x: 0.10 + rnd() * 0.80,
     y: 0.10 + rnd() * 0.80,
-  })).map((e, i) => (
-    i === anchorIdx ? { ...e, role: 'dominant' as Role } : e
-  )), rnd)
+  })), rnd)
 }
 
 function randomCombo(rnd: () => number): Slot[] {
@@ -585,9 +607,15 @@ export default function App() {
   }, [])
 
   const applyPreset = useCallback((preset: Preset) => {
-    setSlots(preset.slots.map(s => ({
+    // Presets historically carry 5 slots; pad with inactive entries
+    // so the state always has MAX_SLOTS entries.
+    const base: Slot[] = preset.slots.map(s => ({
       colorIndex: s.colorIndex, x: s.x, y: s.y, weight: s.weight,
-    })))
+    }))
+    while (base.length < MAX_SLOTS) {
+      base.push({ colorIndex: 0, x: 0.5, y: 0.5, weight: 0 })
+    }
+    setSlots(base.slice(0, MAX_SLOTS))
     setActivePresetId(preset.id)
     setGalleryOpen(false)
   }, [])
@@ -750,11 +778,11 @@ function SidePanel({
       ].join(' ')}
     >
       {/* top group — Randomize + color rows */}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 min-h-0 flex-1 overflow-y-auto scroll-thin">
         <PanelButton onClick={onRandomize} icon={<Icon.Shuffle />} variant="primary">
           Randomize
         </PanelButton>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           {slots.map((slot, i) => {
             const share = totalWeight > 0
               ? Math.round((slot.weight / totalWeight) * 100)
