@@ -60,14 +60,28 @@ vec3 srgb_to_lin(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }
 vec3 lin_to_srgb(vec3 c) { return pow(clamp(c,0.0,1.0), vec3(0.45455)); }
 
 /* ── gentle global warp ── smooth low-frequency sines, NOT noise.
-   Modest amplitude so the visual center of each blob stays close
-   to its drag-handle position while the surface still visibly flows. */
+   Bends the IDW field into flowing S-curves; a cross-axis layer (depends
+   on both uv.x and uv.y) yields diagonal ribbons so the curves do not all
+   align with a single axis. */
 vec2 gentleWarp(vec2 uv, float t) {
-  float wx = sin(uv.y * 3.1 + t * 0.25) * 0.5
-           + sin(uv.y * 1.7 - t * 0.18 + 1.3) * 0.5;
-  float wy = sin(uv.x * 2.7 - t * 0.22 + 0.7) * 0.5
-           + sin(uv.x * 1.9 + t * 0.14 + 2.1) * 0.5;
-  return uv + vec2(wx, wy) * 0.035;
+  float wx = sin(uv.y * 3.1 + t * 0.25) * 0.45
+           + sin(uv.y * 1.7 - t * 0.18 + 1.3) * 0.40
+           + sin((uv.x + uv.y) * 2.3 + t * 0.20 + 0.6) * 0.30;
+  float wy = sin(uv.x * 2.7 - t * 0.22 + 0.7) * 0.45
+           + sin(uv.x * 1.9 + t * 0.14 + 2.1) * 0.40
+           + sin((uv.x - uv.y) * 2.6 - t * 0.17 + 1.9) * 0.30;
+  return uv + vec2(wx, wy) * 0.075;
+}
+
+/* ── swirl ── rotate UV around a centre, strength fades to 0 at radius.
+   Two of these stacked give abstract, twisted color patterns. */
+vec2 swirl(vec2 uv, vec2 c, float strength, float radius) {
+  vec2 d  = uv - c;
+  float r = length(d);
+  float w = smoothstep(radius, 0.0, r);     // 1 at centre → 0 at edge
+  float a = strength * w * w;                 // squared falloff
+  float ca = cos(a), sa = sin(a);
+  return c + mat2(ca, -sa, sa, ca) * d;
 }
 
 /* ── per-point lens warp ── each control point gently pulls nearby UVs.
@@ -90,7 +104,15 @@ void main() {
   float t   = u_time;
   vec2  asp = vec2(u_resolution.x / u_resolution.y, 1.0);
 
-  vec2 wuv = gentleWarp(uv, t);
+  // Two slowly drifting swirls — bend the UV field into twisted abstract
+  // shapes. Centres orbit along orthogonal sin/cos paths, opposite spins.
+  vec2 sc1 = vec2(0.32 + 0.12 * sin(t * 0.07),
+                  0.66 + 0.10 * cos(t * 0.09 + 1.2));
+  vec2 sc2 = vec2(0.72 + 0.11 * cos(t * 0.08 + 2.4),
+                  0.30 + 0.12 * sin(t * 0.11));
+  vec2 wuv = swirl(uv,  sc1,  0.55, 0.45);
+       wuv = swirl(wuv, sc2, -0.45, 0.50);
+  wuv = gentleWarp(wuv, t);
   wuv = lensWarp(wuv, asp);
 
   /* IDW blend in OKLab — avoids muddy brown from complementary colours.
@@ -99,40 +121,25 @@ void main() {
   vec3  labSum = vec3(0.0);
   float wsum   = 0.0;
 
+  // Shepard's inverse-distance interpolation: every pixel takes a
+  // weighted blend of ALL points, with the nearest dominating via the
+  // 1/d^p falloff. No blob boundaries, no white background — true mesh.
   for (int i = 0; i < ${MAX_POINTS}; i++) {
     if (i >= u_pointCount) break;
-    float sz    = clamp(u_sizes[i], 0.05, 1.0);
-    float sigma = mix(0.12, 0.75, sz);
-    // per-point breathing — pulses sigma ±10% with a different phase per
-    // point so each blob feels alive without shifting its centre.
-    sigma *= 1.0 + 0.10 * sin(u_time * 0.42 + float(i) * 1.37);
+    float sz = clamp(u_sizes[i], 0.05, 1.0);
+    // breathing — ±10% pulse on influence, different phase per point
+    sz *= 1.0 + 0.10 * sin(u_time * 0.42 + float(i) * 1.37);
 
-    // main source — raw gaussian, full tail. Long tails let neighbouring
-    // points pull each other into merged metaball-like shapes.
-    vec2  d  = (wuv - u_points[i]) * asp;
-    float g  = exp(-dot(d,d) / (2.0*sigma*sigma));
+    vec2  d_vec = (wuv - u_points[i]) * asp;
+    float d     = length(d_vec);
+    // Influence: weighted by slot size, modulated by 1/d^p. Lower p
+    // (2.5) + bigger floor (0.005) → softer edges, more blending between
+    // neighbouring colors at their meeting zone.
+    float w = (pow(sz, 1.4) + 0.05) / (pow(d, 2.5) + 0.005);
 
-    // 2 satellites — appear smoothly as weight crosses 0.50
-    float satAmp = smoothstep(0.50, 1.0, sz);
-    for (int k = 0; k < 2; k++) {
-      float ang  = float(i) * 1.234 + float(k) * 2.094;
-      vec2  off  = vec2(cos(ang), sin(ang)) * 0.22;
-      vec2  sd   = (wuv - (u_points[i] + off)) * asp;
-      float sSig = sigma * 0.60;
-      float sg   = exp(-dot(sd,sd) / (2.0 * sSig * sSig));
-      g += sg * satAmp * 0.55;
-    }
-
-    labSum += lin_to_oklab(srgb_to_lin(u_colors[i])) * g;
-    wsum   += g;
+    labSum += lin_to_oklab(srgb_to_lin(u_colors[i])) * w;
+    wsum   += w;
   }
-
-  /* White baseline — softly fills areas where no blob has strong reach.
-     This prevents the IDW result from collapsing to black at the edges
-     when wsum is tiny, and gives a "watercolour on paper" feel. */
-  const float BASELINE = 0.10;
-  labSum += lin_to_oklab(srgb_to_lin(vec3(1.0))) * BASELINE;
-  wsum   += BASELINE;
 
   vec3 col = lin_to_srgb(oklab_to_lin(labSum / wsum));
 

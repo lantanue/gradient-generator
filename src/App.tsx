@@ -180,14 +180,21 @@ function randomCombo(rnd: () => number): Slot[] {
     'cornerBloom', 'diagonal', 'centerFocus', 'edgeWash', 'layered', 'constellation',
   ]
   const arch = archetypes[Math.floor(rnd() * archetypes.length)]
-  switch (arch) {
-    case 'cornerBloom'  : return cornerBloomCombo(rnd)
-    case 'diagonal'     : return diagonalCombo(rnd)
-    case 'centerFocus'  : return centerFocusCombo(rnd)
-    case 'edgeWash'     : return edgeWashCombo(rnd)
-    case 'layered'      : return layeredCombo(rnd)
-    case 'constellation': return constellationCombo(rnd)
-  }
+  const slots =
+    arch === 'cornerBloom'   ? cornerBloomCombo(rnd) :
+    arch === 'diagonal'      ? diagonalCombo(rnd) :
+    arch === 'centerFocus'   ? centerFocusCombo(rnd) :
+    arch === 'edgeWash'      ? edgeWashCombo(rnd) :
+    arch === 'layered'       ? layeredCombo(rnd) :
+                               constellationCombo(rnd)
+  // Keep every point on-canvas. Archetypes use slightly out-of-range
+  // anchors for visual freedom; clamping here is the single point of
+  // enforcement so all handles remain visible and draggable.
+  return slots.map(s => ({
+    ...s,
+    x: Math.max(0.05, Math.min(0.95, s.x)),
+    y: Math.max(0.05, Math.min(0.95, s.y)),
+  }))
 }
 
 function slotsToMeshPoints(slots: Slot[]): MeshPoint[] {
