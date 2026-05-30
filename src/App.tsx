@@ -10,15 +10,19 @@ type Slot = { colorIndex: number; x: number; y: number; weight: number }
 /** Total color slots. Mirrors MAX_POINTS in the WebGL shader. */
 const MAX_SLOTS = 8
 
+// Startup composition — pastel mix: 4 main colours present at gentle
+// weights (Y/O/C balanced, Blue as a tiny accent) over a double white
+// wash. Two slots intentionally inactive (Cyan/Yellow at 0) to leave
+// room for manual additions without losing the brand colour identity.
 const DEFAULT_SLOTS: Slot[] = [
-  { colorIndex: 0, x: 0.18, y: 0.22, weight: 62 },
-  { colorIndex: 1, x: 0.22, y: 0.72, weight: 55 },
-  { colorIndex: 2, x: 0.80, y: 0.25, weight: 55 },
-  { colorIndex: 3, x: 0.76, y: 0.76, weight: 68 },
-  { colorIndex: 4, x: 0.50, y: 0.50, weight: 22 },
-  { colorIndex: 0, x: 0.50, y: 0.16, weight: 28 },
-  { colorIndex: 3, x: 0.16, y: 0.50, weight: 26 },
-  { colorIndex: 1, x: 0.84, y: 0.50, weight: 28 },
+  { colorIndex: 0, x: 0.42, y: 0.42, weight: 21 },  // Yellow
+  { colorIndex: 1, x: 0.60, y: 0.55, weight: 18 },  // Orange
+  { colorIndex: 2, x: 0.50, y: 0.85, weight: 18 },  // Cyan
+  { colorIndex: 3, x: 0.92, y: 0.10, weight:  3 },  // Blue — tiny accent
+  { colorIndex: 2, x: 0.50, y: 0.50, weight:  0 },  // Cyan slot, inactive
+  { colorIndex: 0, x: 0.50, y: 0.50, weight:  0 },  // Yellow slot, inactive
+  { colorIndex: 4, x: 0.20, y: 0.32, weight: 21 },  // White — upper-left wash
+  { colorIndex: 4, x: 0.80, y: 0.68, weight: 21 },  // White — lower-right wash
 ]
 
 /* ─── helpers ──────────────────────────────────────────────── */

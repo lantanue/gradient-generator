@@ -177,11 +177,16 @@ void main() {
   float ghostDominance, ghostSpread;   // unused
   vec3  col2 = idwField(wuv2, asp, ghostDominance, ghostSpread);
 
-  // Multiply-style overlay — gated by dominance so the ghost only
-  // affects boundary regions; at colour centres dominance is high and
-  // the overlay vanishes, leaving the rendered colour matching the
-  // brand hex value as closely as possible.
-  float ghostStrength = 0.30 * smoothstep(0.65, 0.30, dominance);
+  // Same-colour gate: 0 when contributing points share a colour
+  // (e.g. white over white), 1 when their colours genuinely differ.
+  // Used to suppress both the ghost overlay and the edge effect so
+  // same-colour overlaps stay clean.
+  float colorMix = smoothstep(0.005, 0.05, colourSpread);
+
+  // Multiply-style overlay — gated by dominance AND colorMix so the
+  // ghost only affects boundary regions where colours genuinely meet.
+  // Pure colour centres (and same-colour overlaps) keep the brand hex.
+  float ghostStrength = 0.30 * smoothstep(0.65, 0.30, dominance) * colorMix;
   vec3  col = mix(col1, col1 * col2 * 1.5, ghostStrength);
 
   // Chroma boost — very mild, just to compensate for OKLab averaging.
@@ -195,7 +200,6 @@ void main() {
   // the competing contributors share a colour (colourSpread ~ 0), so
   // same-colour overlaps merge seamlessly instead of growing a seam.
   float edgeRaw  = smoothstep(0.55, 0.22, dominance);
-  float colorMix = smoothstep(0.005, 0.05, colourSpread);
   float edge     = edgeRaw * colorMix;
   vec3  labE = lin_to_oklab(srgb_to_lin(col));
   labE.x  += edge * 0.02;                    // subtle glow lift
