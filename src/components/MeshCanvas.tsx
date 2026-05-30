@@ -15,7 +15,9 @@ const VERT = `
 attribute vec2 a_pos;
 varying vec2 v_uv;
 void main() {
-  v_uv = (a_pos + 1.0) * 0.5;
+  // Flip Y so v_uv matches CSS coords (y=0 at top, y=1 at bottom).
+  // Point positions (u_points) use CSS coords, so they line up directly.
+  v_uv = vec2((a_pos.x + 1.0) * 0.5, 1.0 - (a_pos.y + 1.0) * 0.5);
   gl_Position = vec4(a_pos, 0.0, 1.0);
 }
 `
@@ -31,25 +33,6 @@ uniform int   u_pointCount;
 uniform vec2  u_points[${MAX_POINTS}];
 uniform vec3  u_colors[${MAX_POINTS}];
 uniform float u_sizes[${MAX_POINTS}];
-
-/* ── noise / fbm ── */
-float hash21(vec2 p) {
-  p = fract(p * vec2(123.34, 345.45));
-  p += dot(p, p + 34.345);
-  return fract(p.x * p.y);
-}
-float noise(vec2 p) {
-  vec2 i = floor(p); vec2 f = fract(p);
-  float a = hash21(i), b = hash21(i+vec2(1,0)), c = hash21(i+vec2(0,1)), d = hash21(i+vec2(1,1));
-  vec2 u = f*f*(3.0-2.0*f);
-  return mix(a,b,u.x)+(c-a)*u.y*(1.0-u.x)+(d-b)*u.x*u.y;
-}
-float fbm(vec2 p) {
-  float v=0.0, a=0.55;
-  mat2 m = mat2(1.6,-1.2,1.2,1.6);
-  for (int i=0;i<5;i++) { v+=a*noise(p); p=m*p; a*=0.52; }
-  return v;
-}
 
 /* ── OKLab colour space ── (functions must be outside main in GLSL ES 1.0) */
 vec3 lin_to_oklab(vec3 c) {
@@ -76,13 +59,30 @@ vec3 oklab_to_lin(vec3 lab) {
 vec3 srgb_to_lin(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }
 vec3 lin_to_srgb(vec3 c) { return pow(clamp(c,0.0,1.0), vec3(0.45455)); }
 
-/* ── domain warp ── */
-vec2 domainWarp(vec2 uv, float t) {
-  vec2 p = uv * 2.4;
-  vec2 q = vec2(fbm(p + t*0.030), fbm(p + vec2(5.2,1.3) - t*0.028));
-  vec2 r = vec2(fbm(p*2.2 + q*2.0 + vec2(1.7,9.2) + t*0.020),
-                fbm(p*2.2 + q*2.0 + vec2(8.3,2.8) - t*0.018));
-  return uv + (q*2.0-1.0)*0.24 + (r*2.0-1.0)*0.18;
+/* ── gentle global warp ── smooth low-frequency sines, NOT noise.
+   Amplitude kept tiny so the visual center of each blob stays anchored
+   to its drag-handle position (no "3D feel" offset). */
+vec2 gentleWarp(vec2 uv, float t) {
+  float wx = sin(uv.y * 3.1 + t * 0.18) * 0.5
+           + sin(uv.y * 1.7 - t * 0.11 + 1.3) * 0.5;
+  float wy = sin(uv.x * 2.7 - t * 0.15 + 0.7) * 0.5
+           + sin(uv.x * 1.9 + t * 0.09 + 2.1) * 0.5;
+  return uv + vec2(wx, wy) * 0.015;
+}
+
+/* ── per-point lens warp ── each control point gently pulls nearby UVs.
+   Tiny amplitude — keeps blob centres locked to their handle position. */
+vec2 lensWarp(vec2 uv, vec2 asp) {
+  vec2 disp = vec2(0.0);
+  for (int i = 0; i < ${MAX_POINTS}; i++) {
+    if (i >= u_pointCount) break;
+    float sz = clamp(u_sizes[i], 0.05, 1.0);
+    float r0 = mix(0.16, 0.65, sz);
+    vec2  d  = (uv - u_points[i]) * asp;
+    float f  = exp(-dot(d, d) / (2.0 * r0 * r0));
+    disp += -d * f * 0.015;
+  }
+  return uv + disp;
 }
 
 void main() {
@@ -90,25 +90,48 @@ void main() {
   float t   = u_time;
   vec2  asp = vec2(u_resolution.x / u_resolution.y, 1.0);
 
-  vec2 wuv = domainWarp(uv, t);
-  float micro = fbm(wuv * 8.0 + vec2(t*0.035, -t*0.028));
-  wuv += (micro*2.0-1.0) * 0.018;
+  vec2 wuv = gentleWarp(uv, t);
+  wuv = lensWarp(wuv, asp);
 
-  /* IDW blend in OKLab — avoids muddy brown from complementary colours */
+  /* IDW blend in OKLab — avoids muddy brown from complementary colours.
+     Each logical point also spawns 2 satellites that fade in on high weight
+     so a dominant colour reads as several sources spread across the canvas. */
   vec3  labSum = vec3(0.0);
   float wsum   = 0.0;
 
   for (int i = 0; i < ${MAX_POINTS}; i++) {
     if (i >= u_pointCount) break;
     float sz    = clamp(u_sizes[i], 0.05, 1.0);
-    float sigma = mix(0.28, 0.52, sz);
-    vec2  d     = (wuv - u_points[i]) * asp;
-    float w     = exp(-dot(d,d) / (2.0*sigma*sigma));
-    labSum += lin_to_oklab(srgb_to_lin(u_colors[i])) * w;
-    wsum   += w;
+    float sigma = mix(0.12, 0.75, sz);
+
+    // main source — raw gaussian, full tail. Long tails let neighbouring
+    // points pull each other into merged metaball-like shapes.
+    vec2  d  = (wuv - u_points[i]) * asp;
+    float g  = exp(-dot(d,d) / (2.0*sigma*sigma));
+
+    // 2 satellites — appear smoothly as weight crosses 0.50
+    float satAmp = smoothstep(0.50, 1.0, sz);
+    for (int k = 0; k < 2; k++) {
+      float ang  = float(i) * 1.234 + float(k) * 2.094;
+      vec2  off  = vec2(cos(ang), sin(ang)) * 0.22;
+      vec2  sd   = (wuv - (u_points[i] + off)) * asp;
+      float sSig = sigma * 0.60;
+      float sg   = exp(-dot(sd,sd) / (2.0 * sSig * sSig));
+      g += sg * satAmp * 0.55;
+    }
+
+    labSum += lin_to_oklab(srgb_to_lin(u_colors[i])) * g;
+    wsum   += g;
   }
 
-  vec3 col = lin_to_srgb(oklab_to_lin(labSum / max(wsum, 0.0001)));
+  /* White baseline — softly fills areas where no blob has strong reach.
+     This prevents the IDW result from collapsing to black at the edges
+     when wsum is tiny, and gives a "watercolour on paper" feel. */
+  const float BASELINE = 0.10;
+  labSum += lin_to_oklab(srgb_to_lin(vec3(1.0))) * BASELINE;
+  wsum   += BASELINE;
+
+  vec3 col = lin_to_srgb(oklab_to_lin(labSum / wsum));
 
   /* chroma boost — keep vivid colours vivid after blending */
   vec3 lab2 = lin_to_oklab(srgb_to_lin(col));
@@ -116,18 +139,9 @@ void main() {
   col       = lin_to_srgb(oklab_to_lin(lab2));
   col       = clamp(col, 0.0, 1.0);
 
-  /* soft brightness ripple */
-  float ripple = fbm(wuv*4.8 + vec2(t*0.018, t*0.012));
-  col = mix(col, col*1.05, smoothstep(0.38, 0.78, ripple)*0.18);
-
-  /* film grain */
-  float gn = hash21(gl_FragCoord.xy + vec2(t*110.0, -t*80.0));
-  col += (gn-0.5)*0.010;
-
-  /* vignette */
-  float vig = smoothstep(1.0, 0.3, length((uv-0.5)*vec2(1.0,0.85)));
-  col *= mix(0.96, 1.0, vig);
-
+  /* Lava-lamp fill — colors occupy the entire canvas via IDW normalization.
+     No white base; every pixel takes its colour from the nearest blobs,
+     blending smoothly throughout. */
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
 `
@@ -168,21 +182,25 @@ function hexToRgb01(hex: string): [number, number, number] {
 /* ── component ── */
 
 const PHI   = 1.6180339887
-const DRIFT = 0.10
+const DRIFT = 0.0   // disabled — keeps blob centres anchored to handle position
 
 export function MeshCanvas({
   points,
   className,
+  animate = true,
 }: {
   points: MeshPoint[]
   className?: string
+  animate?: boolean
 }) {
   const canvasRef  = useRef<HTMLCanvasElement | null>(null)
   const pointsRef  = useRef(points)
+  const animateRef = useRef(animate)
   const rafRef     = useRef<number | null>(null)
 
-  // keep latest points accessible in the RAF without restarting it
+  // keep latest values accessible in the RAF without restarting it
   useEffect(() => { pointsRef.current = points }, [points])
+  useEffect(() => { animateRef.current = animate }, [animate])
 
   useEffect(() => {
     const canvasEl = canvasRef.current
@@ -235,14 +253,16 @@ export function MeshCanvas({
     const frame = () => {
       resize()
 
-      const t      = (performance.now() - start) / 1000
-      const active = pointsRef.current.filter(p => p.enabled !== false).slice(0, MAX_POINTS)
+      const tReal   = (performance.now() - start) / 1000
+      const aFactor = animateRef.current ? 1 : 0
+      const t       = tReal * aFactor
+      const active  = pointsRef.current.filter(p => p.enabled !== false).slice(0, MAX_POINTS)
 
       // pack uniforms with animated positions (drift around home coords)
       pxy.fill(0); col.fill(0); siz.fill(0)
       for (let i = 0; i < active.length; i++) {
         const p = active[i]
-        const f  = 0.05 + i * 0.011
+        const f  = 0.018 + i * 0.004
         pxy[i*2]   = Math.max(0.01, Math.min(0.99, p.x + Math.sin(2*Math.PI*f      *t + i*2.4) * DRIFT))
         pxy[i*2+1] = Math.max(0.01, Math.min(0.99, p.y + Math.cos(2*Math.PI*f*PHI  *t + i*1.6) * DRIFT))
         const [r, g, b] = hexToRgb01(p.color)

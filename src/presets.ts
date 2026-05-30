@@ -1,147 +1,153 @@
-export type PresetPoint = {
-  color: string
+/* Brand-color combos.
+ * Each preset has 5 slots. Each slot picks a brand color via `colorIndex`
+ * (0 = Yellow, 1 = Orange, 2 = Cyan, 3 = Blue, 4 = White). Colors can
+ * repeat — e.g. a sunny preset can use [Yellow, Yellow, Orange, Yellow, White].
+ * weight = 0 means that slot is inactive (skip it). */
+
+export type PresetSlot = {
+  colorIndex: number
   x: number
   y: number
-  size: number
+  weight: number
 }
 
 export type Preset = {
   id: string
   name: string
-  points: PresetPoint[]
+  slots: [PresetSlot, PresetSlot, PresetSlot, PresetSlot, PresetSlot]
 }
 
 export const PRESETS: Preset[] = [
   {
-    id: 'aurora',
-    name: 'Aurora',
-    points: [
-      { color: '#FC817E', x: 0.15, y: 0.70, size: 0.65 },
-      { color: '#77EAB5', x: 0.75, y: 0.15, size: 0.70 },
-      { color: '#BEFFC3', x: 0.50, y: 0.55, size: 0.55 },
-      { color: '#E9FED1', x: 0.05, y: 0.20, size: 0.60 },
-      { color: '#A5E9FF', x: 0.88, y: 0.72, size: 0.58 },
-    ],
-  },
-  {
-    id: 'ocean',
-    name: 'Ocean',
-    points: [
-      { color: '#C51EFF', x: 0.15, y: 0.70, size: 0.60 },
-      { color: '#56AEF9', x: 0.82, y: 0.18, size: 0.72 },
-      { color: '#F3CAF7', x: 0.40, y: 0.40, size: 0.50 },
-      { color: '#6482DC', x: 0.08, y: 0.30, size: 0.58 },
-      { color: '#00159A', x: 0.88, y: 0.80, size: 0.65 },
+    id: 'sunrise',
+    name: 'Sunrise',
+    slots: [
+      { colorIndex: 0, x: 0.20, y: 0.30, weight: 78 },
+      { colorIndex: 1, x: 0.72, y: 0.20, weight: 62 },
+      { colorIndex: 0, x: 0.50, y: 0.55, weight: 35 },
+      { colorIndex: 3, x: 0.85, y: 0.78, weight: 22 },
+      { colorIndex: 4, x: 0.18, y: 0.78, weight: 38 },
     ],
   },
   {
     id: 'sunset',
     name: 'Sunset',
-    points: [
-      { color: '#FF5E4D', x: 0.10, y: 0.60, size: 0.68 },
-      { color: '#FFC371', x: 0.50, y: 0.18, size: 0.72 },
-      { color: '#FF5291', x: 0.85, y: 0.38, size: 0.60 },
-      { color: '#FF9348', x: 0.30, y: 0.80, size: 0.65 },
-      { color: '#B43278', x: 0.70, y: 0.74, size: 0.55 },
+    slots: [
+      { colorIndex: 0, x: 0.75, y: 0.18, weight: 55 },
+      { colorIndex: 1, x: 0.22, y: 0.55, weight: 84 },
+      { colorIndex: 2, x: 0.50, y: 0.50, weight: 18 },
+      { colorIndex: 3, x: 0.82, y: 0.75, weight: 42 },
+      { colorIndex: 4, x: 0.50, y: 0.50, weight: 0  },
     ],
   },
   {
-    id: 'mint',
-    name: 'Mint',
-    points: [
-      { color: '#64DCB4', x: 0.20, y: 0.28, size: 0.65 },
-      { color: '#3CBEA0', x: 0.70, y: 0.60, size: 0.70 },
-      { color: '#AAF0C8', x: 0.50, y: 0.85, size: 0.55 },
-      { color: '#C8FFE6', x: 0.85, y: 0.14, size: 0.60 },
-      { color: '#1EA078', x: 0.10, y: 0.70, size: 0.62 },
+    id: 'ocean',
+    name: 'Ocean',
+    slots: [
+      { colorIndex: 2, x: 0.20, y: 0.30, weight: 70 },
+      { colorIndex: 3, x: 0.78, y: 0.72, weight: 86 },
+      { colorIndex: 2, x: 0.50, y: 0.78, weight: 40 },
+      { colorIndex: 3, x: 0.82, y: 0.22, weight: 30 },
+      { colorIndex: 4, x: 0.40, y: 0.40, weight: 28 },
     ],
   },
   {
-    id: 'lavender',
-    name: 'Lavender',
-    points: [
-      { color: '#BE96FF', x: 0.25, y: 0.25, size: 0.68 },
-      { color: '#8C64DC', x: 0.70, y: 0.65, size: 0.72 },
-      { color: '#DCC8FF', x: 0.50, y: 0.50, size: 0.55 },
-      { color: '#643CC8', x: 0.10, y: 0.75, size: 0.60 },
-      { color: '#E6BEFF', x: 0.90, y: 0.20, size: 0.58 },
+    id: 'sky',
+    name: 'Sky',
+    slots: [
+      { colorIndex: 3, x: 0.78, y: 0.30, weight: 70 },
+      { colorIndex: 4, x: 0.50, y: 0.18, weight: 56 },
+      { colorIndex: 2, x: 0.25, y: 0.70, weight: 48 },
+      { colorIndex: 3, x: 0.20, y: 0.30, weight: 32 },
+      { colorIndex: 4, x: 0.80, y: 0.80, weight: 38 },
     ],
   },
   {
-    id: 'cotton',
-    name: 'Cotton Candy',
-    points: [
-      { color: '#FFB6DA', x: 0.20, y: 0.30, size: 0.65 },
-      { color: '#AED6FF', x: 0.75, y: 0.20, size: 0.70 },
-      { color: '#FFDAE9', x: 0.50, y: 0.65, size: 0.55 },
-      { color: '#D2BEFF', x: 0.10, y: 0.70, size: 0.60 },
-      { color: '#B4E6FF', x: 0.88, y: 0.75, size: 0.58 },
+    id: 'citrus',
+    name: 'Citrus',
+    slots: [
+      { colorIndex: 0, x: 0.22, y: 0.25, weight: 80 },
+      { colorIndex: 1, x: 0.78, y: 0.72, weight: 78 },
+      { colorIndex: 0, x: 0.55, y: 0.20, weight: 35 },
+      { colorIndex: 1, x: 0.18, y: 0.80, weight: 38 },
+      { colorIndex: 4, x: 0.85, y: 0.30, weight: 26 },
     ],
   },
   {
-    id: 'golden',
-    name: 'Golden Hour',
-    points: [
-      { color: '#FFD700', x: 0.15, y: 0.50, size: 0.68 },
-      { color: '#FFA500', x: 0.75, y: 0.28, size: 0.72 },
-      { color: '#FFBE32', x: 0.50, y: 0.75, size: 0.58 },
-      { color: '#FFC850', x: 0.85, y: 0.70, size: 0.60 },
-      { color: '#FF8C00', x: 0.10, y: 0.20, size: 0.65 },
+    id: 'frost',
+    name: 'Frost',
+    slots: [
+      { colorIndex: 2, x: 0.30, y: 0.30, weight: 72 },
+      { colorIndex: 3, x: 0.78, y: 0.40, weight: 64 },
+      { colorIndex: 4, x: 0.20, y: 0.78, weight: 50 },
+      { colorIndex: 2, x: 0.75, y: 0.78, weight: 38 },
+      { colorIndex: 4, x: 0.50, y: 0.20, weight: 32 },
     ],
   },
   {
-    id: 'crimson',
-    name: 'Crimson',
-    points: [
-      { color: '#C8143C', x: 0.20, y: 0.40, size: 0.68 },
-      { color: '#FF5064', x: 0.75, y: 0.60, size: 0.72 },
-      { color: '#B40028', x: 0.50, y: 0.18, size: 0.58 },
-      { color: '#FF7882', x: 0.10, y: 0.75, size: 0.62 },
-      { color: '#DC3250', x: 0.88, y: 0.20, size: 0.60 },
+    id: 'spectrum',
+    name: 'Spectrum',
+    slots: [
+      { colorIndex: 0, x: 0.18, y: 0.22, weight: 58 },
+      { colorIndex: 1, x: 0.20, y: 0.78, weight: 58 },
+      { colorIndex: 2, x: 0.82, y: 0.22, weight: 58 },
+      { colorIndex: 3, x: 0.80, y: 0.80, weight: 58 },
+      { colorIndex: 4, x: 0.50, y: 0.50, weight: 30 },
     ],
   },
   {
-    id: 'electric',
-    name: 'Electric',
-    points: [
-      { color: '#00C8FF', x: 0.15, y: 0.40, size: 0.65 },
-      { color: '#B400FF', x: 0.80, y: 0.28, size: 0.70 },
-      { color: '#00FFC8', x: 0.50, y: 0.70, size: 0.58 },
-      { color: '#6400FF', x: 0.30, y: 0.14, size: 0.62 },
-      { color: '#FF00B4', x: 0.75, y: 0.80, size: 0.60 },
+    id: 'bolt',
+    name: 'Bolt',
+    slots: [
+      { colorIndex: 0, x: 0.25, y: 0.22, weight: 72 },
+      { colorIndex: 3, x: 0.78, y: 0.74, weight: 82 },
+      { colorIndex: 0, x: 0.78, y: 0.22, weight: 32 },
+      { colorIndex: 3, x: 0.30, y: 0.78, weight: 30 },
+      { colorIndex: 4, x: 0.50, y: 0.50, weight: 18 },
     ],
   },
   {
-    id: 'forest',
-    name: 'Forest',
-    points: [
-      { color: '#1E783C', x: 0.15, y: 0.20, size: 0.65 },
-      { color: '#50B450', x: 0.70, y: 0.50, size: 0.70 },
-      { color: '#326428', x: 0.40, y: 0.75, size: 0.58 },
-      { color: '#78C864', x: 0.85, y: 0.15, size: 0.60 },
-      { color: '#3CA046', x: 0.25, y: 0.60, size: 0.62 },
+    id: 'mango',
+    name: 'Mango',
+    slots: [
+      { colorIndex: 0, x: 0.20, y: 0.30, weight: 82 },
+      { colorIndex: 0, x: 0.72, y: 0.25, weight: 64 },
+      { colorIndex: 1, x: 0.55, y: 0.65, weight: 88 },
+      { colorIndex: 0, x: 0.18, y: 0.78, weight: 48 },
+      { colorIndex: 4, x: 0.85, y: 0.80, weight: 30 },
     ],
   },
   {
-    id: 'midnight',
-    name: 'Midnight',
-    points: [
-      { color: '#141E64', x: 0.20, y: 0.30, size: 0.68 },
-      { color: '#3250B4', x: 0.75, y: 0.65, size: 0.72 },
-      { color: '#1E3296', x: 0.50, y: 0.50, size: 0.58 },
-      { color: '#0A1450', x: 0.10, y: 0.70, size: 0.62 },
-      { color: '#5078DC', x: 0.88, y: 0.20, size: 0.60 },
+    id: 'parade',
+    name: 'Parade',
+    slots: [
+      { colorIndex: 0, x: 0.15, y: 0.55, weight: 70 },
+      { colorIndex: 1, x: 0.40, y: 0.25, weight: 70 },
+      { colorIndex: 2, x: 0.65, y: 0.70, weight: 70 },
+      { colorIndex: 3, x: 0.88, y: 0.40, weight: 70 },
+      { colorIndex: 4, x: 0.50, y: 0.50, weight: 28 },
     ],
   },
   {
-    id: 'peach',
-    name: 'Peach Fuzz',
-    points: [
-      { color: '#FFB482', x: 0.20, y: 0.60, size: 0.68 },
-      { color: '#FFD2A0', x: 0.75, y: 0.25, size: 0.72 },
-      { color: '#FF9664', x: 0.50, y: 0.80, size: 0.58 },
-      { color: '#FFC896', x: 0.85, y: 0.70, size: 0.62 },
-      { color: '#F0A06E', x: 0.10, y: 0.20, size: 0.60 },
+    id: 'lagoon',
+    name: 'Lagoon',
+    slots: [
+      { colorIndex: 2, x: 0.18, y: 0.30, weight: 78 },
+      { colorIndex: 2, x: 0.78, y: 0.40, weight: 60 },
+      { colorIndex: 3, x: 0.50, y: 0.75, weight: 72 },
+      { colorIndex: 4, x: 0.25, y: 0.80, weight: 42 },
+      { colorIndex: 2, x: 0.70, y: 0.18, weight: 36 },
+    ],
+  },
+  {
+    id: 'butter',
+    name: 'Butter',
+    slots: [
+      { colorIndex: 0, x: 0.30, y: 0.30, weight: 88 },
+      { colorIndex: 4, x: 0.78, y: 0.25, weight: 56 },
+      { colorIndex: 0, x: 0.20, y: 0.78, weight: 60 },
+      { colorIndex: 0, x: 0.80, y: 0.75, weight: 50 },
+      { colorIndex: 4, x: 0.50, y: 0.50, weight: 30 },
     ],
   },
 ]
