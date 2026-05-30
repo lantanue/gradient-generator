@@ -70,7 +70,7 @@ vec2 gentleWarp(vec2 uv, float t) {
   float wy = sin(uv.x * 2.7 - t * 0.22 + 0.7) * 0.45
            + sin(uv.x * 1.9 + t * 0.14 + 2.1) * 0.40
            + sin((uv.x - uv.y) * 2.6 - t * 0.17 + 1.9) * 0.30;
-  return uv + vec2(wx, wy) * 0.075;
+  return uv + vec2(wx, wy) * 0.095;
 }
 
 /* ── swirl ── rotate UV around a centre, strength fades to 0 at radius.
@@ -99,59 +99,112 @@ vec2 lensWarp(vec2 uv, vec2 asp) {
   return uv + disp;
 }
 
+/* Shepard's IDW field sample. Returns colour at the given (already
+   warped) UV plus two out params for the edge effect:
+   - dominance: maxW / sumW (1.0 in colour core, lower at boundaries)
+   - colourSpread: weighted variance of OKLab chroma (a, b). Near 0
+     when contributing points share a colour (same cyan overlapping)
+     and rises as different colours compete. The edge effect uses
+     this to skip "fake" boundaries between same-colour points. */
+vec3 idwField(vec2 sampleUv, vec2 asp, out float dominance, out float colourSpread) {
+  vec3  labSum   = vec3(0.0);
+  vec3  labSqSum = vec3(0.0);
+  float wsum     = 0.0;
+  float maxW     = 0.0;
+  for (int i = 0; i < ${MAX_POINTS}; i++) {
+    if (i >= u_pointCount) break;
+    float sz = clamp(u_sizes[i], 0.05, 1.0);
+    sz *= 1.0 + 0.10 * sin(u_time * 0.42 + float(i) * 1.37);
+    vec2  d_vec = (sampleUv - u_points[i]) * asp;
+    float d     = length(d_vec);
+    float wRaw  = (pow(sz, 1.4) + 0.05) / (pow(d, 2.5) + 0.005);
+    vec3  lab   = lin_to_oklab(srgb_to_lin(u_colors[i]));
+    // Low-chroma colours (white) would otherwise read as "translucent"
+    // because they contribute no a/b to the OKLab mean. Boost their
+    // weight so white claims its own region as confidently as vivid hues.
+    float chroma = length(vec2(lab.y, lab.z));
+    float chromaBoost = mix(1.55, 1.0, smoothstep(0.0, 0.10, chroma));
+    float w = wRaw * chromaBoost;
+    if (w > maxW) maxW = w;
+    labSum   += lab * w;
+    labSqSum += lab * lab * w;
+    wsum     += w;
+  }
+  dominance = maxW / wsum;
+  vec3 mean     = labSum   / wsum;
+  vec3 variance = labSqSum / wsum - mean * mean;
+  colourSpread  = length(vec2(variance.y, variance.z));   // a/b chroma spread
+  return lin_to_srgb(oklab_to_lin(mean));
+}
+
+/* Apply the full UV warp pipeline used by both passes.
+   Three swirls drifting along independent Lissajous orbits + the
+   sine warp give the lava-lamp feel: large slow bends of the field. */
+vec2 fullWarp(vec2 uv, vec2 asp, float t) {
+  vec2 sc1 = vec2(0.32 + 0.13 * sin(t * 0.07),
+                  0.66 + 0.11 * cos(t * 0.09 + 1.2));
+  vec2 sc2 = vec2(0.72 + 0.12 * cos(t * 0.08 + 2.4),
+                  0.30 + 0.13 * sin(t * 0.11));
+  vec2 sc3 = vec2(0.50 + 0.18 * sin(t * 0.05 + 0.8),
+                  0.50 + 0.16 * cos(t * 0.06 + 2.0));
+  vec2 wuv = swirl(uv,  sc1,  0.75, 0.48);
+       wuv = swirl(wuv, sc2, -0.65, 0.52);
+       wuv = swirl(wuv, sc3,  0.40, 0.55);
+  wuv = gentleWarp(wuv, t);
+  wuv = lensWarp(wuv, asp);
+  return wuv;
+}
+
 void main() {
   vec2  uv  = v_uv;
   float t   = u_time;
   vec2  asp = vec2(u_resolution.x / u_resolution.y, 1.0);
 
-  // Two slowly drifting swirls — bend the UV field into twisted abstract
-  // shapes. Centres orbit along orthogonal sin/cos paths, opposite spins.
-  vec2 sc1 = vec2(0.32 + 0.12 * sin(t * 0.07),
-                  0.66 + 0.10 * cos(t * 0.09 + 1.2));
-  vec2 sc2 = vec2(0.72 + 0.11 * cos(t * 0.08 + 2.4),
-                  0.30 + 0.12 * sin(t * 0.11));
-  vec2 wuv = swirl(uv,  sc1,  0.55, 0.45);
-       wuv = swirl(wuv, sc2, -0.45, 0.50);
-  wuv = gentleWarp(wuv, t);
-  wuv = lensWarp(wuv, asp);
+  // Primary IDW pass with dominance + colour-spread tracking.
+  vec2  wuv1 = fullWarp(uv, asp, t);
+  float dominance, colourSpread;
+  vec3  col1 = idwField(wuv1, asp, dominance, colourSpread);
 
-  /* IDW blend in OKLab — avoids muddy brown from complementary colours.
-     Each logical point also spawns 2 satellites that fade in on high weight
-     so a dominant colour reads as several sources spread across the canvas. */
-  vec3  labSum = vec3(0.0);
-  float wsum   = 0.0;
+  // Ghost pass: same mesh sampled through a rotated/scaled UV. Layered
+  // on top via multiply blend to produce an X-ray-style "second slide
+  // peeking through". Rotation 0.6 rad ≈ 34°, slight inward shrink so
+  // the ghost stays mostly on-canvas.
+  vec2 ghostUv = uv - vec2(0.5);
+  float ga = 0.6;
+  ghostUv = mat2(cos(ga), -sin(ga), sin(ga), cos(ga)) * ghostUv;
+  ghostUv = ghostUv * 0.92 + vec2(0.5);
+  vec2  wuv2 = fullWarp(ghostUv, asp, t);
+  float ghostDominance, ghostSpread;   // unused
+  vec3  col2 = idwField(wuv2, asp, ghostDominance, ghostSpread);
 
-  // Shepard's inverse-distance interpolation: every pixel takes a
-  // weighted blend of ALL points, with the nearest dominating via the
-  // 1/d^p falloff. No blob boundaries, no white background — true mesh.
-  for (int i = 0; i < ${MAX_POINTS}; i++) {
-    if (i >= u_pointCount) break;
-    float sz = clamp(u_sizes[i], 0.05, 1.0);
-    // breathing — ±10% pulse on influence, different phase per point
-    sz *= 1.0 + 0.10 * sin(u_time * 0.42 + float(i) * 1.37);
+  // Multiply-style overlay — gated by dominance so the ghost only
+  // affects boundary regions; at colour centres dominance is high and
+  // the overlay vanishes, leaving the rendered colour matching the
+  // brand hex value as closely as possible.
+  float ghostStrength = 0.30 * smoothstep(0.65, 0.30, dominance);
+  vec3  col = mix(col1, col1 * col2 * 1.5, ghostStrength);
 
-    vec2  d_vec = (wuv - u_points[i]) * asp;
-    float d     = length(d_vec);
-    // Influence: weighted by slot size, modulated by 1/d^p. Lower p
-    // (2.5) + bigger floor (0.005) → softer edges, more blending between
-    // neighbouring colors at their meeting zone.
-    float w = (pow(sz, 1.4) + 0.05) / (pow(d, 2.5) + 0.005);
-
-    labSum += lin_to_oklab(srgb_to_lin(u_colors[i])) * w;
-    wsum   += w;
-  }
-
-  vec3 col = lin_to_srgb(oklab_to_lin(labSum / wsum));
-
-  /* chroma boost — keep vivid colours vivid after blending */
+  // Chroma boost — very mild, just to compensate for OKLab averaging.
   vec3 lab2 = lin_to_oklab(srgb_to_lin(col));
-  lab2.yz  *= 1.55;
+  lab2.yz  *= 1.15;
   col       = lin_to_srgb(oklab_to_lin(lab2));
   col       = clamp(col, 0.0, 1.0);
 
-  /* Lava-lamp fill — colors occupy the entire canvas via IDW normalization.
-     No white base; every pixel takes its colour from the nearest blobs,
-     blending smoothly throughout. */
+  // Edge transitions: where two DIFFERENT-colour points compete we
+  // lift chroma + tiny L glow + micro hue rotation. Suppressed when
+  // the competing contributors share a colour (colourSpread ~ 0), so
+  // same-colour overlaps merge seamlessly instead of growing a seam.
+  float edgeRaw  = smoothstep(0.55, 0.22, dominance);
+  float colorMix = smoothstep(0.005, 0.05, colourSpread);
+  float edge     = edgeRaw * colorMix;
+  vec3  labE = lin_to_oklab(srgb_to_lin(col));
+  labE.x  += edge * 0.02;                    // subtle glow lift
+  labE.yz *= 1.0 + edge * 0.22;              // mild chroma lift at edges
+  float ha = edge * 0.10;                    // hue micro-shift (~6° max)
+  float hc = cos(ha), hs = sin(ha);
+  labE.yz  = mat2(hc, -hs, hs, hc) * labE.yz;
+  col      = lin_to_srgb(oklab_to_lin(labE));
+
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
 `
@@ -196,12 +249,14 @@ export const DRIFT = 0.04   // amplitude of Lissajous orbit per point (~4% of ca
 
 // shared formula so DragHandles can mirror the exact same animated position
 export function driftedPosition(
-  baseX: number, baseY: number, i: number, t: number,
+  baseX: number, baseY: number, i: number, t: number, intensity: number = 1,
 ): { x: number; y: number } {
   const f = 0.018 + i * 0.004
+  const dx = Math.sin(2 * Math.PI * f       * t + i * 2.4) * DRIFT * intensity
+  const dy = Math.cos(2 * Math.PI * f * PHI * t + i * 1.6) * DRIFT * intensity
   return {
-    x: Math.max(0.01, Math.min(0.99, baseX + Math.sin(2 * Math.PI * f      * t + i * 2.4) * DRIFT)),
-    y: Math.max(0.01, Math.min(0.99, baseY + Math.cos(2 * Math.PI * f * PHI * t + i * 1.6) * DRIFT)),
+    x: Math.max(0.01, Math.min(0.99, baseX + dx)),
+    y: Math.max(0.01, Math.min(0.99, baseY + dy)),
   }
 }
 
@@ -215,7 +270,7 @@ export function MeshCanvas({
   className?: string
   animate?: boolean
   /** Optional. Receives [x0, y0, x1, y1, ...] of animated point positions each frame. */
-  positionsRef?: React.MutableRefObject<Float32Array | null>
+  positionsRef?: React.RefObject<Float32Array | null>
 }) {
   const canvasRef  = useRef<HTMLCanvasElement | null>(null)
   const pointsRef  = useRef(points)
@@ -257,9 +312,12 @@ export function MeshCanvas({
     const uSizes = gl.getUniformLocation(prog, 'u_sizes[0]')
 
     // pre-allocate — avoids GC churn at 60 fps
-    const pxy = new Float32Array(MAX_POINTS * 2)
-    const col = new Float32Array(MAX_POINTS * 3)
-    const siz = new Float32Array(MAX_POINTS)
+    // pxy / col / siz are packed by ACTIVE index (compact, for shader uniforms)
+    // slotPositions is keyed by SLOT index (sparse, for DragHandles consumption)
+    const pxy           = new Float32Array(MAX_POINTS * 2)
+    const col           = new Float32Array(MAX_POINTS * 3)
+    const siz           = new Float32Array(MAX_POINTS)
+    const slotPositions = new Float32Array(MAX_POINTS * 2)
 
     function resize() {
       const dpr = Math.min(2, window.devicePixelRatio || 1)
@@ -274,6 +332,9 @@ export function MeshCanvas({
     // Time accumulator — increments only while animating, so pause truly freezes.
     let t = 0
     let lastMs = performance.now()
+    // Drift intensity smoothly fades to 0 on pause (so blobs settle exactly
+    // at slot.x/y with no orbit offset) and back to 1 on resume.
+    let driftIntensity = animateRef.current ? 1 : 0
     window.addEventListener('resize', resize)
 
     const frame = () => {
@@ -283,22 +344,34 @@ export function MeshCanvas({
       if (animateRef.current) t += (now - lastMs) / 1000
       lastMs = now
 
-      const active = pointsRef.current.filter(p => p.enabled !== false).slice(0, MAX_POINTS)
+      // Smooth fade toward target intensity (~0.2s transition)
+      const target = animateRef.current ? 1 : 0
+      driftIntensity += (target - driftIntensity) * 0.12
+      if (Math.abs(driftIntensity - target) < 0.001) driftIntensity = target
 
-      // pack uniforms with animated positions (drift around home coords)
-      pxy.fill(0); col.fill(0); siz.fill(0)
-      for (let i = 0; i < active.length; i++) {
-        const p = active[i]
-        const pos = driftedPosition(p.x, p.y, i, t)
-        pxy[i*2]   = pos.x
-        pxy[i*2+1] = pos.y
+      // Walk by SLOT index so animated positions remain stable per slot
+      // even when middle slots are disabled. Drag handles read by slot
+      // index from slotPositions; shader uniforms are packed compactly
+      // by active index (skipping disabled slots).
+      pxy.fill(0); col.fill(0); siz.fill(0); slotPositions.fill(0)
+      const allPoints = pointsRef.current.slice(0, MAX_POINTS)
+      let activeCount = 0
+      for (let slotIdx = 0; slotIdx < allPoints.length; slotIdx++) {
+        const p = allPoints[slotIdx]
+        const pos = driftedPosition(p.x, p.y, slotIdx, t, driftIntensity)
+        slotPositions[slotIdx*2]   = pos.x
+        slotPositions[slotIdx*2+1] = pos.y
+        if (p.enabled === false) continue
+        pxy[activeCount*2]   = pos.x
+        pxy[activeCount*2+1] = pos.y
         const [r, g, b] = hexToRgb01(p.color)
-        col[i*3] = r; col[i*3+1] = g; col[i*3+2] = b
-        siz[i] = p.size
+        col[activeCount*3] = r; col[activeCount*3+1] = g; col[activeCount*3+2] = b
+        siz[activeCount] = p.size
+        activeCount++
       }
 
-      // mirror animated positions for external consumers (drag handles)
-      if (positionsRef) positionsRef.current = pxy
+      // mirror slot-indexed positions for external consumers (drag handles)
+      if (positionsRef) positionsRef.current = slotPositions
 
       gl.useProgram(prog)
       gl.bindBuffer(gl.ARRAY_BUFFER, buf)
@@ -307,7 +380,7 @@ export function MeshCanvas({
 
       gl.uniform2f(uRes,   canvas.width, canvas.height)
       gl.uniform1f(uTime,  t)
-      gl.uniform1i(uCount, active.length)
+      gl.uniform1i(uCount, activeCount)
       gl.uniform2fv(uPts,  pxy)
       gl.uniform3fv(uCols, col)
       gl.uniform1fv(uSizes, siz)

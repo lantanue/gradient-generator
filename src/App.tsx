@@ -35,17 +35,28 @@ function mulberry32(seed: number) {
   }
 }
 
-/* ─── randomizer: composition archetypes ───────────────────── */
-
-type Archetype =
-  | 'cornerBloom'
-  | 'diagonal'
-  | 'centerFocus'
-  | 'edgeWash'
-  | 'layered'
-  | 'constellation'
+/* ─── randomizer: composition schemes × spatial layouts ────── */
+// Two-stage random composition:
+// 1) pickScheme()  — colour identity (mono / sunrise / ocean / ...)
+//    builds 2-5 colour entries with explicit role
+// 2) pickArchetype() — where to place those N entries on canvas
+// Result is padded to MAX_SLOTS with inactive slots.
 
 type Role = 'dominant' | 'accent' | 'whisper' | 'none'
+
+type Scheme =
+  | 'warmTrio' | 'coolTrio' | 'warmCool' | 'quadFlat' | 'quadPlusWhite'
+  | 'warmDominant' | 'coolDominant' | 'pentet' | 'pairedAccent'
+
+type Archetype =
+  | 'cornerBloom' | 'diagonal' | 'centerFocus' | 'edgeWash' | 'layered' | 'constellation'
+
+interface SchemeEntry { colorIndex: number; role: Role }
+
+type Pos = { x: number; y: number }
+
+// Brand color indices — match src/brand.ts BRAND_PALETTE order
+const Y = 0, O = 1, C = 2, B = 3, W = 4
 
 function roleToWeight(role: Role, rnd: () => number): number {
   switch (role) {
@@ -56,167 +67,294 @@ function roleToWeight(role: Role, rnd: () => number): number {
   }
 }
 
-function pickColor(rnd: () => number): number {
-  return Math.floor(rnd() * BRAND_PALETTE.length)
-}
-
-function nearby(cx: number, cy: number, jitter: number, rnd: () => number) {
+function nearby(cx: number, cy: number, jitter: number, rnd: () => number): Pos {
   return {
     x: cx + (rnd() - 0.5) * 2 * jitter,
     y: cy + (rnd() - 0.5) * 2 * jitter,
   }
 }
 
-/** Combine an array of [role, position] pairs into MAX_SLOTS, filling the rest with 'none'. */
-function buildSlots(
-  entries: Array<{ role: Role; x: number; y: number }>,
-  rnd: () => number,
-): Slot[] {
-  const padded: Slot[] = []
-  for (let i = 0; i < MAX_SLOTS; i++) {
-    if (i < entries.length) {
-      padded.push({
-        colorIndex: pickColor(rnd),
-        x: entries[i].x,
-        y: entries[i].y,
-        weight: roleToWeight(entries[i].role, rnd),
-      })
-    } else {
-      padded.push({ colorIndex: pickColor(rnd), x: 0.5, y: 0.5, weight: 0 })
+/* ─── colour schemes ─────────────────────────────────────────
+   Each scheme returns a colour budget — a list of (colorIndex, count)
+   pairs — converted to SchemeEntry[] with roles. Strict rules:
+   - Total active slots: 4..8
+   - No single colorIndex repeated more than 3 times
+   First entry of first colour: dominant. First entry of subsequent
+   colours: accent. Repeated entries of any colour: whisper. */
+
+type ColorBudget = Array<{ colorIndex: number; count: number }>
+
+function safeBudget(budget: ColorBudget): ColorBudget {
+  // Cap each color count at 3, drop zeros
+  const capped = budget.map(b => ({
+    colorIndex: b.colorIndex,
+    count: Math.max(0, Math.min(3, Math.round(b.count))),
+  })).filter(b => b.count > 0)
+  // Trim total to <= 8
+  let total = capped.reduce((s, b) => s + b.count, 0)
+  while (total > 8) {
+    let maxIdx = 0
+    for (let i = 1; i < capped.length; i++) {
+      if (capped[i].count > capped[maxIdx].count) maxIdx = i
     }
+    capped[maxIdx].count -= 1
+    total -= 1
   }
-  return padded
+  return capped.filter(b => b.count > 0)
 }
 
-function cornerBloomCombo(rnd: () => number): Slot[] {
-  const corners = [
-    { x: -0.05, y: -0.05 }, { x: 1.05, y: -0.05 },
-    { x: -0.05, y: 1.05 }, { x: 1.05, y: 1.05 },
+function budgetToEntries(budget: ColorBudget): SchemeEntry[] {
+  const safe = safeBudget(budget)
+  const out: SchemeEntry[] = []
+  safe.forEach((b, colorIdx) => {
+    for (let j = 0; j < b.count; j++) {
+      const role: Role =
+        colorIdx === 0 && j === 0 ? 'dominant' :
+        j === 0                   ? 'accent'   :
+                                    'whisper'
+      out.push({ colorIndex: b.colorIndex, role })
+    }
+  })
+  return out
+}
+
+function buildScheme(scheme: Scheme, rnd: () => number): SchemeEntry[] {
+  switch (scheme) {
+    case 'warmTrio':       return budgetToEntries(warmTrioBudget(rnd))
+    case 'coolTrio':       return budgetToEntries(coolTrioBudget(rnd))
+    case 'warmCool':       return budgetToEntries(warmCoolBudget(rnd))
+    case 'quadFlat':       return budgetToEntries(quadFlatBudget(rnd))
+    case 'quadPlusWhite':  return budgetToEntries(quadPlusWhiteBudget(rnd))
+    case 'warmDominant':   return budgetToEntries(warmDominantBudget(rnd))
+    case 'coolDominant':   return budgetToEntries(coolDominantBudget(rnd))
+    case 'pentet':         return budgetToEntries(pentetBudget(rnd))
+    case 'pairedAccent':   return budgetToEntries(pairedAccentBudget(rnd))
+  }
+}
+
+function warmTrioBudget(rnd: () => number): ColorBudget {
+  return [
+    { colorIndex: Y, count: 2 + Math.floor(rnd() * 2) },  // 2..3
+    { colorIndex: O, count: 2 },
+    { colorIndex: W, count: 1 + Math.floor(rnd() * 2) },  // 1..2
+  ]
+}
+
+function coolTrioBudget(rnd: () => number): ColorBudget {
+  return [
+    { colorIndex: C, count: 2 + Math.floor(rnd() * 2) },
+    { colorIndex: B, count: 2 },
+    { colorIndex: W, count: 1 + Math.floor(rnd() * 2) },
+  ]
+}
+
+function warmCoolBudget(_rnd: () => number): ColorBudget {
+  // Balanced cross-temperature quartet — total 6
+  return [
+    { colorIndex: Y, count: 2 },
+    { colorIndex: O, count: 1 },
+    { colorIndex: C, count: 2 },
+    { colorIndex: B, count: 1 },
+  ]
+}
+
+function quadFlatBudget(_rnd: () => number): ColorBudget {
+  return [
+    { colorIndex: Y, count: 1 },
+    { colorIndex: O, count: 1 },
+    { colorIndex: C, count: 1 },
+    { colorIndex: B, count: 1 },
+  ]
+}
+
+function quadPlusWhiteBudget(rnd: () => number): ColorBudget {
+  return [
+    { colorIndex: Y, count: 1 + Math.floor(rnd() * 2) },  // 1..2
+    { colorIndex: O, count: 1 },
+    { colorIndex: C, count: 1 + Math.floor(rnd() * 2) },  // 1..2
+    { colorIndex: B, count: 1 },
+    { colorIndex: W, count: 1 },
+  ]
+}
+
+function warmDominantBudget(rnd: () => number): ColorBudget {
+  const out: ColorBudget = [
+    { colorIndex: Y, count: 2 + Math.floor(rnd() * 2) },  // 2..3
+    { colorIndex: O, count: 1 + Math.floor(rnd() * 2) },  // 1..2
+    { colorIndex: rnd() < 0.5 ? C : B, count: 1 },
+  ]
+  if (rnd() < 0.5) out.push({ colorIndex: W, count: 1 })
+  return out
+}
+
+function coolDominantBudget(rnd: () => number): ColorBudget {
+  const out: ColorBudget = [
+    { colorIndex: C, count: 2 + Math.floor(rnd() * 2) },
+    { colorIndex: B, count: 1 + Math.floor(rnd() * 2) },
+    { colorIndex: rnd() < 0.5 ? Y : O, count: 1 },
+  ]
+  if (rnd() < 0.5) out.push({ colorIndex: W, count: 1 })
+  return out
+}
+
+function pentetBudget(rnd: () => number): ColorBudget {
+  // All 5 brand colours present; safeBudget will trim to <=8 total.
+  return [
+    { colorIndex: Y, count: 1 + Math.floor(rnd() * 2) },
+    { colorIndex: O, count: 1 + Math.floor(rnd() * 2) },
+    { colorIndex: C, count: 1 + Math.floor(rnd() * 2) },
+    { colorIndex: B, count: 1 + Math.floor(rnd() * 2) },
+    { colorIndex: W, count: 1 },
+  ]
+}
+
+function pairedAccentBudget(rnd: () => number): ColorBudget {
+  const warm = rnd() < 0.5 ? Y : O
+  const cool = rnd() < 0.5 ? C : B
+  const out: ColorBudget = [
+    { colorIndex: warm, count: 2 },
+    { colorIndex: cool, count: 2 },
+  ]
+  if (rnd() < 0.55) out.push({ colorIndex: W, count: 1 })
+  return out
+}
+
+function pickScheme(rnd: () => number): Scheme {
+  const weights: Array<[Scheme, number]> = [
+    ['warmTrio',      14],
+    ['coolTrio',      14],
+    ['warmCool',      12],
+    ['quadFlat',       8],
+    ['quadPlusWhite', 11],
+    ['warmDominant',  11],
+    ['coolDominant',  11],
+    ['pentet',         9],
+    ['pairedAccent',  10],
+  ]
+  const total = weights.reduce((s, [, w]) => s + w, 0)
+  let r = rnd() * total
+  for (const [s, w] of weights) {
+    if (r < w) return s
+    r -= w
+  }
+  return 'warmTrio'
+}
+
+/* ─── spatial layouts (variable count) ──────────────────────── */
+
+function pickArchetype(rnd: () => number): Archetype {
+  const archs: Archetype[] = [
+    'cornerBloom', 'diagonal', 'centerFocus', 'edgeWash', 'layered', 'constellation',
+  ]
+  return archs[Math.floor(rnd() * archs.length)]
+}
+
+function layoutPositions(arch: Archetype, count: number, rnd: () => number): Pos[] {
+  switch (arch) {
+    case 'cornerBloom':   return layoutCornerBloom(count, rnd)
+    case 'diagonal':      return layoutDiagonal(count, rnd)
+    case 'centerFocus':   return layoutCenterFocus(count, rnd)
+    case 'edgeWash':      return layoutEdgeWash(count, rnd)
+    case 'layered':       return layoutLayered(count, rnd)
+    case 'constellation': return layoutConstellation(count, rnd)
+  }
+}
+
+function layoutCornerBloom(count: number, rnd: () => number): Pos[] {
+  const corners: Array<[number, number]> = [
+    [-0.05, -0.05], [1.05, -0.05], [-0.05, 1.05], [1.05, 1.05],
   ]
   const c = corners[Math.floor(rnd() * 4)]
-  const opp = { x: 1 - c.x, y: 1 - c.y }
-  return buildSlots([
-    { role: 'dominant', ...nearby(c.x, c.y, 0.15, rnd) },
-    { role: 'accent',   ...nearby(opp.x, opp.y, 0.18, rnd) },
-    { role: 'accent',   ...nearby(opp.x, opp.y, 0.25, rnd) },
-    { role: 'accent',   x: 0.30 + rnd() * 0.40, y: 0.30 + rnd() * 0.40 },
-    { role: 'whisper',  x: 0.10 + rnd() * 0.80, y: 0.10 + rnd() * 0.80 },
-    { role: 'whisper',  ...nearby(c.x, c.y, 0.35, rnd) },
-    { role: rnd() < 0.5 ? 'whisper' : 'none', x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
-  ], rnd)
+  const opp: [number, number] = [1 - c[0], 1 - c[1]]
+  const out: Pos[] = [nearby(c[0], c[1], 0.15, rnd)]
+  for (let i = 1; i < count; i++) {
+    const j = 0.18 + (i - 1) * 0.05
+    out.push(nearby(opp[0], opp[1], j, rnd))
+  }
+  return out
 }
 
-function diagonalCombo(rnd: () => number): Slot[] {
-  // pick one of two diagonals
+function layoutDiagonal(count: number, rnd: () => number): Pos[] {
   const flip = rnd() < 0.5
-  const a = flip ? { x: -0.05, y: -0.05 } : { x: 1.05, y: -0.05 }
-  const b = flip ? { x: 1.05, y: 1.05 } : { x: -0.05, y: 1.05 }
-  // midpoint of the diagonal
-  const mx = (a.x + b.x) * 0.5
-  const my = (a.y + b.y) * 0.5
-  return buildSlots([
-    { role: 'dominant', ...nearby(a.x, a.y, 0.16, rnd) },
-    { role: 'dominant', ...nearby(b.x, b.y, 0.16, rnd) },
-    { role: 'accent',   x: 0.4 + rnd() * 0.2, y: 0.4 + rnd() * 0.2 },
-    { role: 'accent',   x: 0.3 + rnd() * 0.4, y: 0.3 + rnd() * 0.4 },
-    { role: 'accent',   ...nearby(mx, my, 0.18, rnd) },
-    { role: 'whisper',  ...nearby(a.x, a.y, 0.35, rnd) },
-    { role: rnd() < 0.6 ? 'whisper' : 'none', ...nearby(b.x, b.y, 0.35, rnd) },
-  ], rnd)
+  const a: [number, number] = flip ? [-0.05, -0.05] : [1.05, -0.05]
+  const b: [number, number] = flip ? [1.05, 1.05]   : [-0.05, 1.05]
+  const out: Pos[] = [nearby(a[0], a[1], 0.15, rnd)]
+  if (count >= 2) out.push(nearby(b[0], b[1], 0.15, rnd))
+  for (let i = 2; i < count; i++) {
+    const t = i / (count + 1)
+    out.push(nearby(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 0.16, rnd))
+  }
+  return out
 }
 
-function centerFocusCombo(rnd: () => number): Slot[] {
-  return buildSlots([
-    { role: 'dominant', x: 0.45 + rnd() * 0.10, y: 0.45 + rnd() * 0.10 },
-    { role: 'accent',   ...nearby(0.10 + rnd() * 0.15, rnd() < 0.5 ? -0.05 : 1.05, 0.10, rnd) },
-    { role: 'accent',   ...nearby(0.75 + rnd() * 0.15, rnd() < 0.5 ? -0.05 : 1.05, 0.10, rnd) },
-    { role: 'accent',   ...nearby(rnd() < 0.5 ? -0.05 : 1.05, 0.30 + rnd() * 0.40, 0.10, rnd) },
-    { role: 'accent',   ...nearby(rnd() < 0.5 ? -0.05 : 1.05, 0.30 + rnd() * 0.40, 0.10, rnd) },
-    { role: 'whisper',  x: 0.18 + rnd() * 0.64, y: 0.18 + rnd() * 0.64 },
-    { role: rnd() < 0.7 ? 'whisper' : 'none', x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
-  ], rnd)
+function layoutCenterFocus(count: number, rnd: () => number): Pos[] {
+  const out: Pos[] = [{ x: 0.45 + rnd() * 0.10, y: 0.45 + rnd() * 0.10 }]
+  const startAngle = rnd() * Math.PI * 2
+  const ring = Math.max(count - 1, 1)
+  for (let i = 1; i < count; i++) {
+    const a = startAngle + ((i - 1) / ring) * Math.PI * 2
+    const r = 0.38 + rnd() * 0.12
+    out.push({ x: 0.5 + Math.cos(a) * r, y: 0.5 + Math.sin(a) * r })
+  }
+  return out
 }
 
-function edgeWashCombo(rnd: () => number): Slot[] {
-  // pick which edge gets the dominant wash
-  const edge = Math.floor(rnd() * 4)  // 0=top, 1=right, 2=bottom, 3=left
-  const along = rnd()  // position along that edge
-  const washPos =
+function layoutEdgeWash(count: number, rnd: () => number): Pos[] {
+  const edge = Math.floor(rnd() * 4)
+  const along = rnd()
+  const wash =
     edge === 0 ? { x: along, y: -0.10 } :
     edge === 1 ? { x: 1.10, y: along } :
     edge === 2 ? { x: along, y: 1.10 } :
                  { x: -0.10, y: along }
-  return buildSlots([
-    { role: 'dominant', ...washPos },
-    { role: 'accent',   x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
-    { role: 'accent',   x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
-    { role: 'accent',   x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
-    { role: 'whisper',  x: 0.15 + rnd() * 0.70, y: 0.15 + rnd() * 0.70 },
-    { role: 'whisper',  x: 0.15 + rnd() * 0.70, y: 0.15 + rnd() * 0.70 },
-    { role: rnd() < 0.4 ? 'accent' : 'whisper', x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 },
-  ], rnd)
+  const out: Pos[] = [wash]
+  for (let i = 1; i < count; i++) {
+    out.push({ x: 0.20 + rnd() * 0.60, y: 0.20 + rnd() * 0.60 })
+  }
+  return out
 }
 
-function layeredCombo(rnd: () => number): Slot[] {
-  // two horizontal or vertical bands
+function layoutLayered(count: number, rnd: () => number): Pos[] {
   const horizontal = rnd() < 0.5
   const split = 0.35 + rnd() * 0.30
-  if (horizontal) {
-    return buildSlots([
-      { role: 'dominant', x: 0.5 + (rnd() - 0.5) * 0.4, y: split * 0.5 },
-      { role: 'dominant', x: 0.5 + (rnd() - 0.5) * 0.4, y: split + (1 - split) * 0.5 },
-      { role: 'accent',   x: rnd(), y: split },
-      { role: 'accent',   x: rnd() * 0.4, y: split * 0.5 + (rnd() - 0.5) * 0.2 },
-      { role: 'accent',   x: 0.6 + rnd() * 0.4, y: split + (1 - split) * 0.5 + (rnd() - 0.5) * 0.2 },
-      { role: 'whisper',  x: 0.1 + rnd() * 0.8, y: 0.1 + rnd() * 0.8 },
-      { role: rnd() < 0.5 ? 'whisper' : 'none', x: 0.1 + rnd() * 0.8, y: 0.1 + rnd() * 0.8 },
-    ], rnd)
-  } else {
-    return buildSlots([
-      { role: 'dominant', x: split * 0.5, y: 0.5 + (rnd() - 0.5) * 0.4 },
-      { role: 'dominant', x: split + (1 - split) * 0.5, y: 0.5 + (rnd() - 0.5) * 0.4 },
-      { role: 'accent',   x: split, y: rnd() },
-      { role: 'accent',   x: split * 0.5 + (rnd() - 0.5) * 0.2, y: rnd() * 0.4 },
-      { role: 'accent',   x: split + (1 - split) * 0.5 + (rnd() - 0.5) * 0.2, y: 0.6 + rnd() * 0.4 },
-      { role: 'whisper',  x: 0.1 + rnd() * 0.8, y: 0.1 + rnd() * 0.8 },
-      { role: rnd() < 0.5 ? 'whisper' : 'none', x: 0.1 + rnd() * 0.8, y: 0.1 + rnd() * 0.8 },
-    ], rnd)
+  const out: Pos[] = []
+  for (let i = 0; i < count; i++) {
+    const inFirst = i % 2 === 0
+    const layer = inFirst ? split * 0.5 : split + (1 - split) * 0.5
+    if (horizontal) {
+      out.push({ x: 0.15 + rnd() * 0.70, y: layer + (rnd() - 0.5) * 0.18 })
+    } else {
+      out.push({ x: layer + (rnd() - 0.5) * 0.18, y: 0.15 + rnd() * 0.70 })
+    }
   }
+  return out
 }
 
-function constellationCombo(rnd: () => number): Slot[] {
-  // 6-8 medium points scattered widely; one slightly larger as anchor
-  const count = 6 + Math.floor(rnd() * 3)  // 6..8
-  const anchorIdx = Math.floor(rnd() * count)
-  return buildSlots(Array.from({ length: count }, (_, i) => ({
-    role: i === anchorIdx ? ('dominant' as Role)
-        : rnd() < 0.65   ? ('accent'   as Role)
-                         : ('whisper'  as Role),
+function layoutConstellation(count: number, rnd: () => number): Pos[] {
+  return Array.from({ length: count }, () => ({
     x: 0.10 + rnd() * 0.80,
     y: 0.10 + rnd() * 0.80,
-  })), rnd)
+  }))
 }
 
+/* ─── combined randomiser ───────────────────────────────────── */
+
 function randomCombo(rnd: () => number): Slot[] {
-  const archetypes: Archetype[] = [
-    'cornerBloom', 'diagonal', 'centerFocus', 'edgeWash', 'layered', 'constellation',
-  ]
-  const arch = archetypes[Math.floor(rnd() * archetypes.length)]
-  const slots =
-    arch === 'cornerBloom'   ? cornerBloomCombo(rnd) :
-    arch === 'diagonal'      ? diagonalCombo(rnd) :
-    arch === 'centerFocus'   ? centerFocusCombo(rnd) :
-    arch === 'edgeWash'      ? edgeWashCombo(rnd) :
-    arch === 'layered'       ? layeredCombo(rnd) :
-                               constellationCombo(rnd)
-  // Keep every point on-canvas. Archetypes use slightly out-of-range
-  // anchors for visual freedom; clamping here is the single point of
-  // enforcement so all handles remain visible and draggable.
-  return slots.map(s => ({
-    ...s,
-    x: Math.max(0.05, Math.min(0.95, s.x)),
-    y: Math.max(0.05, Math.min(0.95, s.y)),
+  const scheme    = pickScheme(rnd)
+  const entries   = buildScheme(scheme, rnd)
+  const arch      = pickArchetype(rnd)
+  const positions = layoutPositions(arch, entries.length, rnd)
+
+  const slots: Slot[] = entries.map((e, i) => ({
+    colorIndex: e.colorIndex,
+    x: Math.max(0.05, Math.min(0.95, positions[i].x)),
+    y: Math.max(0.05, Math.min(0.95, positions[i].y)),
+    weight: roleToWeight(e.role, rnd),
   }))
+  while (slots.length < MAX_SLOTS) {
+    slots.push({ colorIndex: 0, x: 0.5, y: 0.5, weight: 0 })
+  }
+  return slots
 }
 
 function slotsToMeshPoints(slots: Slot[]): MeshPoint[] {
@@ -478,7 +616,7 @@ function DragHandles({
   stageRef: React.RefObject<HTMLDivElement | null>
   onPositionChange: (idx: number, x: number, y: number) => void
   visible: boolean
-  positionsRef: React.MutableRefObject<Float32Array | null>
+  positionsRef: React.RefObject<Float32Array | null>
 }) {
   const draggingRef = useRef<number | null>(null)
   const buttonRefs  = useRef<Array<HTMLButtonElement | null>>([])
