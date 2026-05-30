@@ -443,14 +443,16 @@ const Icon = {
 /* ─── drag handles ─────────────────────────────────────────── */
 
 function DragHandles({
-  slots, stageRef, onPositionChange, visible,
+  slots, stageRef, onPositionChange, visible, positionsRef,
 }: {
   slots: Slot[]
   stageRef: React.RefObject<HTMLDivElement | null>
   onPositionChange: (idx: number, x: number, y: number) => void
   visible: boolean
+  positionsRef: React.MutableRefObject<Float32Array | null>
 }) {
   const draggingRef = useRef<number | null>(null)
+  const buttonRefs  = useRef<Array<HTMLButtonElement | null>>([])
 
   const onPointerDown = (idx: number) => (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault()
@@ -469,6 +471,31 @@ function DragHandles({
 
   const onPointerUp = () => { draggingRef.current = null }
 
+  // Follow the animated blob centers each frame by reading positionsRef
+  // populated by MeshCanvas. Direct DOM updates — no React re-renders.
+  useEffect(() => {
+    if (!visible) return
+    let raf = 0
+    const tick = () => {
+      const positions = positionsRef.current
+      if (positions) {
+        for (let i = 0; i < slots.length; i++) {
+          const el = buttonRefs.current[i]
+          if (!el) continue
+          if (draggingRef.current === i) continue   // skip the one being dragged
+          if (slots[i].weight <= 0) continue
+          const x = positions[i * 2]
+          const y = positions[i * 2 + 1]
+          el.style.left = `${x * 100}%`
+          el.style.top  = `${y * 100}%`
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [slots, visible, positionsRef])
+
   if (!visible) return null
 
   return (
@@ -480,6 +507,7 @@ function DragHandles({
         return (
           <button
             key={`handle-${i}`}
+            ref={(el) => { buttonRefs.current[i] = el }}
             type="button"
             onPointerDown={onPointerDown(i)}
             onPointerMove={onPointerMove(i)}
@@ -520,6 +548,9 @@ export default function App() {
 
   const stageRef = useRef<HTMLDivElement | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Shared between MeshCanvas (writer) and DragHandles (reader) so the
+  // drag-handles follow the same Lissajous drift as the rendered blobs.
+  const animatedPositionsRef = useRef<Float32Array | null>(null)
 
   /* ── derived ── */
   const meshPoints = useMemo(() => slotsToMeshPoints(slots), [slots])
@@ -610,12 +641,14 @@ export default function App() {
           className="absolute inset-0 w-full h-full block"
           points={meshPoints}
           animate={animate}
+          positionsRef={animatedPositionsRef}
         />
         <DragHandles
           slots={slots}
           stageRef={stageRef}
           onPositionChange={updateSlotPosition}
           visible={showHandles}
+          positionsRef={animatedPositionsRef}
         />
       </div>
 

@@ -60,14 +60,14 @@ vec3 srgb_to_lin(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }
 vec3 lin_to_srgb(vec3 c) { return pow(clamp(c,0.0,1.0), vec3(0.45455)); }
 
 /* ── gentle global warp ── smooth low-frequency sines, NOT noise.
-   Amplitude kept tiny so the visual center of each blob stays anchored
-   to its drag-handle position (no "3D feel" offset). */
+   Modest amplitude so the visual center of each blob stays close
+   to its drag-handle position while the surface still visibly flows. */
 vec2 gentleWarp(vec2 uv, float t) {
-  float wx = sin(uv.y * 3.1 + t * 0.18) * 0.5
-           + sin(uv.y * 1.7 - t * 0.11 + 1.3) * 0.5;
-  float wy = sin(uv.x * 2.7 - t * 0.15 + 0.7) * 0.5
-           + sin(uv.x * 1.9 + t * 0.09 + 2.1) * 0.5;
-  return uv + vec2(wx, wy) * 0.015;
+  float wx = sin(uv.y * 3.1 + t * 0.25) * 0.5
+           + sin(uv.y * 1.7 - t * 0.18 + 1.3) * 0.5;
+  float wy = sin(uv.x * 2.7 - t * 0.22 + 0.7) * 0.5
+           + sin(uv.x * 1.9 + t * 0.14 + 2.1) * 0.5;
+  return uv + vec2(wx, wy) * 0.035;
 }
 
 /* ── per-point lens warp ── each control point gently pulls nearby UVs.
@@ -103,6 +103,9 @@ void main() {
     if (i >= u_pointCount) break;
     float sz    = clamp(u_sizes[i], 0.05, 1.0);
     float sigma = mix(0.12, 0.75, sz);
+    // per-point breathing — pulses sigma ±10% with a different phase per
+    // point so each blob feels alive without shifting its centre.
+    sigma *= 1.0 + 0.10 * sin(u_time * 0.42 + float(i) * 1.37);
 
     // main source — raw gaussian, full tail. Long tails let neighbouring
     // points pull each other into merged metaball-like shapes.
@@ -181,17 +184,31 @@ function hexToRgb01(hex: string): [number, number, number] {
 
 /* ── component ── */
 
-const PHI   = 1.6180339887
-const DRIFT = 0.0   // disabled — keeps blob centres anchored to handle position
+export const PHI   = 1.6180339887
+export const DRIFT = 0.04   // amplitude of Lissajous orbit per point (~4% of canvas)
+
+// shared formula so DragHandles can mirror the exact same animated position
+export function driftedPosition(
+  baseX: number, baseY: number, i: number, t: number,
+): { x: number; y: number } {
+  const f = 0.018 + i * 0.004
+  return {
+    x: Math.max(0.01, Math.min(0.99, baseX + Math.sin(2 * Math.PI * f      * t + i * 2.4) * DRIFT)),
+    y: Math.max(0.01, Math.min(0.99, baseY + Math.cos(2 * Math.PI * f * PHI * t + i * 1.6) * DRIFT)),
+  }
+}
 
 export function MeshCanvas({
   points,
   className,
   animate = true,
+  positionsRef,
 }: {
   points: MeshPoint[]
   className?: string
   animate?: boolean
+  /** Optional. Receives [x0, y0, x1, y1, ...] of animated point positions each frame. */
+  positionsRef?: React.MutableRefObject<Float32Array | null>
 }) {
   const canvasRef  = useRef<HTMLCanvasElement | null>(null)
   const pointsRef  = useRef(points)
@@ -247,28 +264,34 @@ export function MeshCanvas({
       }
     }
 
-    const start = performance.now()
+    // Time accumulator — increments only while animating, so pause truly freezes.
+    let t = 0
+    let lastMs = performance.now()
     window.addEventListener('resize', resize)
 
     const frame = () => {
       resize()
 
-      const tReal   = (performance.now() - start) / 1000
-      const aFactor = animateRef.current ? 1 : 0
-      const t       = tReal * aFactor
-      const active  = pointsRef.current.filter(p => p.enabled !== false).slice(0, MAX_POINTS)
+      const now = performance.now()
+      if (animateRef.current) t += (now - lastMs) / 1000
+      lastMs = now
+
+      const active = pointsRef.current.filter(p => p.enabled !== false).slice(0, MAX_POINTS)
 
       // pack uniforms with animated positions (drift around home coords)
       pxy.fill(0); col.fill(0); siz.fill(0)
       for (let i = 0; i < active.length; i++) {
         const p = active[i]
-        const f  = 0.018 + i * 0.004
-        pxy[i*2]   = Math.max(0.01, Math.min(0.99, p.x + Math.sin(2*Math.PI*f      *t + i*2.4) * DRIFT))
-        pxy[i*2+1] = Math.max(0.01, Math.min(0.99, p.y + Math.cos(2*Math.PI*f*PHI  *t + i*1.6) * DRIFT))
+        const pos = driftedPosition(p.x, p.y, i, t)
+        pxy[i*2]   = pos.x
+        pxy[i*2+1] = pos.y
         const [r, g, b] = hexToRgb01(p.color)
         col[i*3] = r; col[i*3+1] = g; col[i*3+2] = b
         siz[i] = p.size
       }
+
+      // mirror animated positions for external consumers (drag handles)
+      if (positionsRef) positionsRef.current = pxy
 
       gl.useProgram(prog)
       gl.bindBuffer(gl.ARRAY_BUFFER, buf)
