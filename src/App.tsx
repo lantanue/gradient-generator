@@ -988,8 +988,10 @@ export default function App() {
         style={{ containerType: 'size' }}
       >
         <div ref={frameRef} className="relative" style={frameStyle}>
-          {/* canvas CLIP — gradient is cropped to the working frame */}
-          <div className="absolute inset-0 overflow-hidden">
+          {/* canvas CLIP — gradient is cropped to the working frame. The
+             rounded corners are purely visual (CSS); PNG export reads the raw
+             WebGL framebuffer, so the downloaded image stays a full rectangle. */}
+          <div className="absolute inset-0 overflow-hidden rounded-[70px]">
             <MeshCanvas
               className="absolute inset-0 w-full h-full block"
               points={meshPoints}
