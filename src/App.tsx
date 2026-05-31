@@ -448,9 +448,12 @@ function ColorRow({
   const color = BRAND_PALETTE[colorIndex].color
   const name  = BRAND_PALETTE[colorIndex].name
 
+  // White fill would vanish on the light track — use the neutral fill the
+  // effect sliders (Speed) use instead.
+  const isWhite = color.toUpperCase() === '#FFFFFF'
   const sliderStyle: CSSProperties = {
     ['--slider-pct' as never]: `${weight}%`,
-    ['--slider-fill' as never]: color,
+    ['--slider-fill' as never]: isWhite ? 'var(--color-muted-foreground)' : color,
   }
 
   return (
@@ -460,7 +463,7 @@ function ColorRow({
           type="button"
           onClick={() => setPickerOpen(o => !o)}
           className={[
-            'w-5 h-5 rounded-md border border-border shadow-[0_1px_3px_rgba(0,0,0,0.35)]',
+            'w-5 h-5 rounded-full shadow-[inset_0_0_0_1px_rgba(0,0,0,0.18)]',
             'transition hover:scale-110 cursor-pointer',
             pickerOpen ? 'ring-2 ring-foreground/40 ring-offset-1 ring-offset-card' : '',
           ].join(' ')}
@@ -483,11 +486,9 @@ function ColorRow({
                 onClick={() => { onColorChange(i); setPickerOpen(false) }}
                 title={b.name}
                 className={[
-                  'w-5 h-5 rounded-md border shadow-[0_1px_2px_rgba(0,0,0,0.3)]',
+                  'w-5 h-5 rounded-full shadow-[inset_0_0_0_1px_rgba(0,0,0,0.18)]',
                   'transition hover:scale-110 cursor-pointer',
-                  i === colorIndex
-                    ? 'border-foreground/80 ring-2 ring-foreground/30'
-                    : 'border-border',
+                  i === colorIndex ? 'ring-2 ring-foreground/60' : '',
                 ].join(' ')}
                 style={{ background: b.color }}
               />
@@ -1102,10 +1103,6 @@ export default function App() {
 
 /* ─── side panel ───────────────────────────────────────────── */
 
-// shared section heading — uniform across the panel
-const SECTION_LABEL =
-  'font-medium uppercase tracking-[0.12em] text-muted-foreground select-none'
-
 function SidePanel({
   slots, totalWeight, animate, showHandles,
   speed, lava, lavaRot, lavaOrbit, aspect, theme,
@@ -1150,7 +1147,7 @@ function SidePanel({
     >
       {/* top — Randomize + Presets side by side */}
       <div className="grid grid-cols-2 gap-1.5 shrink-0">
-        <PanelButton onClick={onRandomize} icon={<Icon.Shuffle />}>Randomize</PanelButton>
+        <PanelButton onClick={onRandomize}>Randomize</PanelButton>
         <PanelButton onClick={onOpenPresets}>Presets</PanelButton>
       </div>
 
@@ -1175,7 +1172,6 @@ function SidePanel({
 
       {/* effects */}
       <div className="flex flex-col gap-1.5 shrink-0 pt-2.5 border-t border-border">
-        <span className={SECTION_LABEL}>Effects</span>
         <EffectSlider label="Speed"  value={speed}   onChange={onSpeedChange} />
         <EffectSlider label="Lava"   value={lava}    onChange={onLavaChange} />
         <EffectSlider label="Rotate" value={lavaRot} max={360} suffix="°" onChange={onLavaRotChange} />
@@ -1197,8 +1193,7 @@ function SidePanel({
       </div>
 
       {/* field size */}
-      <div className="flex flex-col gap-1.5 shrink-0">
-        <span className={SECTION_LABEL}>Field size</span>
+      <div className="flex flex-col gap-1.5 shrink-0 pt-2.5 border-t border-border">
         <div className="grid grid-cols-3 gap-1">
           {ASPECT_KEYS.map((key) => (
             <button
