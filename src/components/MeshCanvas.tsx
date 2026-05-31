@@ -434,7 +434,7 @@ export function MeshCanvas({
     // Pack the current points/time into uniforms and draw at backing size
     // (w,h). Shared by the RAF loop and the hi-res export so both render the
     // exact same instant. Reads closure `t`/`driftIntensity` live.
-    function drawScene(w: number, h: number) {
+    const drawScene = (w: number, h: number) => {
       // Walk by SLOT index so animated positions remain stable per slot
       // even when middle slots are disabled. Drag handles read by slot
       // index from slotPositions; shader uniforms are packed compactly
