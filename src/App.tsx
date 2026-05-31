@@ -8,19 +8,33 @@ import { BRAND_PALETTE } from './brand'
 type Slot = { colorIndex: number; x: number; y: number; weight: number }
 
 /** Total color slots. Mirrors MAX_POINTS in the WebGL shader. */
-const MAX_SLOTS = 8
+const MAX_SLOTS = 6
+
+/* ─── gradient field sizing ─────────────────────────────────── */
+
+type AspectKey = 'free' | '16:9' | '9:16' | '1:1' | '3:4' | '4:3'
+
+// CSS aspect-ratio per preset (null = free, fills the inset stage).
+const ASPECT_RATIO: Record<AspectKey, string | null> = {
+  free: null, '16:9': '16 / 9', '9:16': '9 / 16',
+  '1:1': '1 / 1', '3:4': '3 / 4', '4:3': '4 / 3',
+}
+
+const ASPECT_KEYS: AspectKey[] = ['free', '16:9', '9:16', '1:1', '3:4', '4:3']
+
+// Hi-res export dimensions per preset (free uses the live frame size × 2).
+const EXPORT_SIZE: Record<Exclude<AspectKey, 'free'>, [number, number]> = {
+  '16:9': [2560, 1440], '9:16': [1440, 2560], '1:1': [2048, 2048],
+  '3:4': [1536, 2048], '4:3': [2048, 1536],
+}
 
 // Startup composition — pastel mix: 4 main colours present at gentle
-// weights (Y/O/C balanced, Blue as a tiny accent) over a double white
-// wash. Two slots intentionally inactive (Cyan/Yellow at 0) to leave
-// room for manual additions without losing the brand colour identity.
+// weights (Y/O/C balanced, Blue as a tiny accent) over a double white wash.
 const DEFAULT_SLOTS: Slot[] = [
   { colorIndex: 0, x: 0.42, y: 0.42, weight: 21 },  // Yellow
   { colorIndex: 1, x: 0.60, y: 0.55, weight: 18 },  // Orange
   { colorIndex: 2, x: 0.50, y: 0.85, weight: 18 },  // Cyan
   { colorIndex: 3, x: 0.92, y: 0.10, weight:  3 },  // Blue — tiny accent
-  { colorIndex: 2, x: 0.50, y: 0.50, weight:  0 },  // Cyan slot, inactive
-  { colorIndex: 0, x: 0.50, y: 0.50, weight:  0 },  // Yellow slot, inactive
   { colorIndex: 4, x: 0.20, y: 0.32, weight: 21 },  // White — upper-left wash
   { colorIndex: 4, x: 0.80, y: 0.68, weight: 21 },  // White — lower-right wash
 ]
@@ -94,9 +108,9 @@ function safeBudget(budget: ColorBudget): ColorBudget {
     colorIndex: b.colorIndex,
     count: Math.max(0, Math.min(3, Math.round(b.count))),
   })).filter(b => b.count > 0)
-  // Trim total to <= 8
+  // Trim total to <= MAX_SLOTS
   let total = capped.reduce((s, b) => s + b.count, 0)
-  while (total > 8) {
+  while (total > MAX_SLOTS) {
     let maxIdx = 0
     for (let i = 1; i < capped.length; i++) {
       if (capped[i].count > capped[maxIdx].count) maxIdx = i
@@ -349,12 +363,20 @@ function randomCombo(rnd: () => number): Slot[] {
   const arch      = pickArchetype(rnd)
   const positions = layoutPositions(arch, entries.length, rnd)
 
-  const slots: Slot[] = entries.map((e, i) => ({
-    colorIndex: e.colorIndex,
-    x: Math.max(0.05, Math.min(0.95, positions[i].x)),
-    y: Math.max(0.05, Math.min(0.95, positions[i].y)),
-    weight: roleToWeight(e.role, rnd),
-  }))
+  // Expand the composition outward from the centre so points use more room and
+  // spill past the working field for richer edge bleeds (matches the
+  // unrestricted manual drag).
+  const SPREAD = 1.5
+  const slots: Slot[] = entries.map((e, i) => {
+    const x = 0.5 + (positions[i].x - 0.5) * SPREAD
+    const y = 0.5 + (positions[i].y - 0.5) * SPREAD
+    return {
+      colorIndex: e.colorIndex,
+      x: Math.max(-0.35, Math.min(1.35, x)),
+      y: Math.max(-0.35, Math.min(1.35, y)),
+      weight: roleToWeight(e.role, rnd),
+    }
+  })
   while (slots.length < MAX_SLOTS) {
     slots.push({ colorIndex: 0, x: 0.5, y: 0.5, weight: 0 })
   }
@@ -473,7 +495,6 @@ function ColorRow({
           </div>
         )}
       </div>
-      <span className="w-10 text-[11px] text-foreground/85 shrink-0 select-none">{name}</span>
       <input
         type="range"
         min={0}
@@ -485,7 +506,7 @@ function ColorRow({
         style={sliderStyle}
         aria-label={`${name} weight`}
       />
-      <span className="w-8 text-right text-[10.5px] text-muted-foreground tabular-nums shrink-0">
+      <span className="w-7 text-right text-muted-foreground tabular-nums shrink-0">
         {share}%
       </span>
     </div>
@@ -540,8 +561,8 @@ function Toast({ message, visible }: { message: string; visible: boolean }) {
     <div
       className={[
         'fixed bottom-7 left-1/2 -translate-x-1/2 z-[200] pointer-events-none whitespace-nowrap',
-        'px-4 py-2 rounded-full bg-[oklch(0.12_0.012_280/0.9)] border border-border backdrop-blur-md',
-        'text-[13px] font-medium text-foreground/95',
+        'px-4 py-2 rounded-full bg-card border border-border backdrop-blur-md',
+        'text-[12px] font-medium text-foreground',
         'transition-all duration-200 ease-out',
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3',
       ].join(' ')}
@@ -609,6 +630,19 @@ const Icon = {
       <path d="M3 13L13 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
     </svg>
   ),
+  Sun: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="3.1" fill="currentColor"/>
+      <path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9 13 13M13 3l-1.1 1.1M4.1 11.9 3 13"
+        stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    </svg>
+  ),
+  Moon: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+      <path d="M13.2 9.6A5.6 5.6 0 1 1 6.4 2.8a4.4 4.4 0 0 0 6.8 6.8z"
+        fill="currentColor"/>
+    </svg>
+  ),
 }
 
 /* ─── drag handles ─────────────────────────────────────────── */
@@ -635,8 +669,9 @@ function DragHandles({
     if (draggingRef.current !== idx) return
     const rect = stageRef.current?.getBoundingClientRect()
     if (!rect) return
-    const x = Math.max(0.02, Math.min(0.98, (e.clientX - rect.left) / rect.width))
-    const y = Math.max(0.02, Math.min(0.98, (e.clientY - rect.top) / rect.height))
+    // No clamp — points may be dragged anywhere, including outside the frame.
+    const x = (e.clientX - rect.left) / rect.width
+    const y = (e.clientY - rect.top) / rect.height
     onPositionChange(idx, x, y)
   }
 
@@ -707,6 +742,95 @@ function DragHandles({
   )
 }
 
+/* ─── lava centre handle ───────────────────────────────────────
+   A draggable crosshair on the stage that controls the lava distortion
+   centre. Frame-normalised 0.5,0.5 = centred (slider 50); it can be dragged
+   into the margin (off-frame) where the swirl cluster is pulled off-canvas. */
+function LavaCenterHandle({
+  frameRef, x, y, visible, orbit, centerRef, onChange,
+}: {
+  frameRef: React.RefObject<HTMLDivElement | null>
+  x: number   // lavaX 0..100
+  y: number   // lavaY 0..100
+  visible: boolean
+  orbit: boolean
+  centerRef: React.RefObject<Float32Array | null>
+  onChange: (x: number, y: number) => void
+}) {
+  const dragging = useRef(false)
+  const btnRef = useRef<HTMLButtonElement | null>(null)
+
+  // While orbiting, the centre is animation-driven: follow centerRef each frame
+  // (direct DOM updates, no React re-render) and disable dragging.
+  useEffect(() => {
+    if (!visible || !orbit) return
+    let raf = 0
+    const tick = () => {
+      const c = centerRef.current
+      const el = btnRef.current
+      if (c && el) {
+        el.style.left = `${c[0] * 100}%`
+        el.style.top  = `${c[1] * 100}%`
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [visible, orbit, centerRef])
+
+  if (!visible) return null
+
+  // slider (0..100) → frame-normalised position: 50 → 0.5 (centre)
+  const px = x / 50 - 0.5
+  const py = y / 50 - 0.5
+
+  const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (orbit) return
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    dragging.current = true
+  }
+  const onPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!dragging.current) return
+    const rect = frameRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const nx = (e.clientX - rect.left) / rect.width
+    const ny = (e.clientY - rect.top) / rect.height
+    onChange(
+      Math.max(0, Math.min(100, (nx + 0.5) * 50)),
+      Math.max(0, Math.min(100, (ny + 0.5) * 50)),
+    )
+  }
+  const onPointerUp = () => { dragging.current = false }
+
+  return (
+    <div className="absolute inset-0 z-20 pointer-events-none">
+      <button
+        ref={btnRef}
+        type="button"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        aria-label="Move lava center"
+        title={orbit ? 'Lava center (orbiting)' : 'Lava center'}
+        className={[
+          'absolute touch-none select-none transition-transform duration-150',
+          orbit ? 'pointer-events-none' : 'pointer-events-auto cursor-grab active:cursor-grabbing hover:scale-110',
+        ].join(' ')}
+        style={{ left: `${px * 100}%`, top: `${py * 100}%`, transform: 'translate(-50%, -50%)' }}
+      >
+        <svg width="30" height="30" viewBox="0 0 30 30" fill="none"
+          className="drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
+          <circle cx="15" cy="15" r="9.5" fill="rgba(0,0,0,0.32)" stroke="#fff" strokeWidth="1.5" />
+          <path d="M15 2v8 M15 20v8 M2 15h8 M20 15h8" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="15" cy="15" r="1.6" fill="#fff" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
 /* ─── app ──────────────────────────────────────────────────── */
 
 export default function App() {
@@ -717,7 +841,25 @@ export default function App() {
   const [activePresetId, setActivePresetId] = useState<string | null>(null)
   const [toast, setToast] = useState({ message: '', visible: false })
 
-  const stageRef = useRef<HTMLDivElement | null>(null)
+  // effect controls + field sizing + ui theme
+  const [speed, setSpeed] = useState(50)
+  const [lava, setLava] = useState(40)
+  const [lavaX, setLavaX] = useState(50)
+  const [lavaY, setLavaY] = useState(50)
+  const [lavaRot, setLavaRot] = useState(0)
+  const [lavaOrbit, setLavaOrbit] = useState(false)
+  const [aspect, setAspect] = useState<AspectKey>('16:9')
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  // bumped on randomize/preset to trigger the glide + colour-crossfade transition
+  const [transitionKey, setTransitionKey] = useState(0)
+
+  // frameRef points at the aspect-sized working frame (canvas's parent), so
+  // drag-handle coordinate math maps to the frame, not the whole stage.
+  const frameRef = useRef<HTMLDivElement | null>(null)
+  const exportRef = useRef<((w: number, h: number) => string | null) | null>(null)
+  // current lava-centre position (frame-normalised), written by MeshCanvas so
+  // the crosshair can follow the orbit.
+  const lavaCenterRef = useRef<Float32Array | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Shared between MeshCanvas (writer) and DragHandles (reader) so the
   // drag-handles follow the same Lissajous drift as the rendered blobs.
@@ -730,6 +872,19 @@ export default function App() {
     [slots],
   )
   const exportCss = useMemo(() => slotsToCss(slots), [slots])
+
+  // free → fill the inset stage; fixed → largest centered box of the target
+  // ratio that fits the stage's content area (cqw/cqh = the padded stage,
+  // since the stage is a size container). min() picks the limiting dimension.
+  const frameStyle: CSSProperties = useMemo(() => {
+    const ratio = ASPECT_RATIO[aspect]
+    if (ratio === null) return { width: '100%', height: '100%' }
+    const [w, h] = ratio.split(' / ').map(Number)
+    return {
+      aspectRatio: ratio,
+      width: `min(100cqw, calc(${w / h} * 100cqh))`,
+    }
+  }, [aspect])
 
   /* ── toast ── */
   const showToast = useCallback((msg: string) => {
@@ -746,6 +901,7 @@ export default function App() {
     const rnd = mulberry32(Math.floor(Math.random() * 1e9))
     setSlots(randomCombo(rnd))
     setActivePresetId(null)
+    setTransitionKey(k => k + 1)
   }, [])
 
   const applyPreset = useCallback((preset: Preset) => {
@@ -760,6 +916,7 @@ export default function App() {
     setSlots(base.slice(0, MAX_SLOTS))
     setActivePresetId(preset.id)
     setGalleryOpen(false)
+    setTransitionKey(k => k + 1)
   }, [])
 
   const updateSlotPosition = useCallback((idx: number, x: number, y: number) => {
@@ -778,10 +935,20 @@ export default function App() {
   }, [])
 
   const handleExport = useCallback(() => {
-    const canvas = stageRef.current?.querySelector('canvas')
-    if (!canvas) return
+    const fn = exportRef.current
+    if (!fn) return
+    let tw: number, th: number
+    if (aspect === 'free') {
+      // base on the live frame size × 2 for retina crispness
+      const r = frameRef.current?.getBoundingClientRect()
+      tw = Math.round((r?.width ?? 1280) * 2)
+      th = Math.round((r?.height ?? 720) * 2)
+    } else {
+      [tw, th] = EXPORT_SIZE[aspect]
+    }
     try {
-      const url = canvas.toDataURL('image/png')
+      const url = fn(tw, th)
+      if (!url) { showToast('Export failed'); return }
       const a = document.createElement('a')
       a.download = 'gradient.png'
       a.href = url
@@ -790,7 +957,7 @@ export default function App() {
     } catch {
       showToast('Export failed')
     }
-  }, [showToast])
+  }, [aspect, showToast])
 
   const handleCopyCss = useCallback(async () => {
     await navigator.clipboard.writeText(exportCss)
@@ -808,25 +975,55 @@ export default function App() {
 
   /* ── ui ── */
   return (
-    <div className="w-screen h-screen flex">
-      {/* ── stage (gradient lives here) ── */}
+    <div
+      data-theme={theme}
+      className="w-screen h-screen flex bg-[var(--color-stage)]"
+    >
+      {/* ── stage: centers an inset working frame; the margin around it
+             gives room to drag points outside the working area. Overflow is
+             visible so off-frame handles stay reachable. ── */}
       <div
-        ref={stageRef}
-        className="relative flex-1 min-w-0 overflow-hidden bg-white"
+        className="relative flex-1 min-w-0 flex items-center justify-center p-[6%] bg-[var(--color-stage)]"
+        style={{ containerType: 'size' }}
       >
-        <MeshCanvas
-          className="absolute inset-0 w-full h-full block"
-          points={meshPoints}
-          animate={animate}
-          positionsRef={animatedPositionsRef}
-        />
-        <DragHandles
-          slots={slots}
-          stageRef={stageRef}
-          onPositionChange={updateSlotPosition}
-          visible={showHandles}
-          positionsRef={animatedPositionsRef}
-        />
+        <div ref={frameRef} className="relative" style={frameStyle}>
+          {/* canvas CLIP — gradient is cropped to the working frame */}
+          <div className="absolute inset-0 overflow-hidden">
+            <MeshCanvas
+              className="absolute inset-0 w-full h-full block"
+              points={meshPoints}
+              animate={animate}
+              speed={speed}
+              lava={lava}
+              lavaX={lavaX}
+              lavaY={lavaY}
+              lavaRot={lavaRot}
+              lavaOrbit={lavaOrbit}
+              transitionKey={transitionKey}
+              positionsRef={animatedPositionsRef}
+              lavaCenterRef={lavaCenterRef}
+              exportRef={exportRef}
+            />
+          </div>
+          {/* handle overlay — overflow visible so handles can sit in the margin */}
+          <DragHandles
+            slots={slots}
+            stageRef={frameRef}
+            onPositionChange={updateSlotPosition}
+            visible={showHandles}
+            positionsRef={animatedPositionsRef}
+          />
+          {/* lava distortion-centre crosshair */}
+          <LavaCenterHandle
+            frameRef={frameRef}
+            x={lavaX}
+            y={lavaY}
+            visible={showHandles}
+            orbit={lavaOrbit}
+            centerRef={lavaCenterRef}
+            onChange={(lx, ly) => { setLavaX(lx); setLavaY(ly) }}
+          />
+        </div>
       </div>
 
       {/* ── side panel (controls live here) ── */}
@@ -835,21 +1032,34 @@ export default function App() {
         totalWeight={totalWeight}
         animate={animate}
         showHandles={showHandles}
+        speed={speed}
+        lava={lava}
+        lavaRot={lavaRot}
+        lavaOrbit={lavaOrbit}
+        aspect={aspect}
+        theme={theme}
         onColorChange={updateColorIndex}
         onWeightChange={updateWeight}
+        onSpeedChange={setSpeed}
+        onLavaChange={setLava}
+        onLavaRotChange={setLavaRot}
+        onToggleOrbit={() => setLavaOrbit(o => !o)}
+        onAspectChange={setAspect}
         onRandomize={handleRandomize}
         onToggleAnimate={() => setAnimate(a => !a)}
         onToggleHandles={() => setShowHandles(s => !s)}
+        onToggleTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))}
         onOpenPresets={() => setGalleryOpen(true)}
         onCopyCss={handleCopyCss}
         onExport={handleExport}
       />
 
-      {/* ── gallery overlay ── */}
+      {/* ── gallery overlay (always dark — a self-contained lightbox) ── */}
       <div
+        data-theme="dark"
         className={[
           'fixed inset-0 z-[100] flex items-center justify-center',
-          'bg-black/65 backdrop-blur-2xl transition-opacity duration-200',
+          'bg-black/65 backdrop-blur-2xl transition-opacity duration-200 text-foreground',
           galleryOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
         ].join(' ')}
         onClick={(e) => { if (e.target === e.currentTarget) setGalleryOpen(false) }}
@@ -892,21 +1102,40 @@ export default function App() {
 
 /* ─── side panel ───────────────────────────────────────────── */
 
+// shared section heading — uniform across the panel
+const SECTION_LABEL =
+  'font-medium uppercase tracking-[0.12em] text-muted-foreground select-none'
+
 function SidePanel({
   slots, totalWeight, animate, showHandles,
+  speed, lava, lavaRot, lavaOrbit, aspect, theme,
   onColorChange, onWeightChange,
-  onRandomize, onToggleAnimate, onToggleHandles,
+  onSpeedChange, onLavaChange, onLavaRotChange, onToggleOrbit,
+  onAspectChange,
+  onRandomize, onToggleAnimate, onToggleHandles, onToggleTheme,
   onOpenPresets, onCopyCss, onExport,
 }: {
   slots: Slot[]
   totalWeight: number
   animate: boolean
   showHandles: boolean
+  speed: number
+  lava: number
+  lavaRot: number
+  lavaOrbit: boolean
+  aspect: AspectKey
+  theme: 'dark' | 'light'
   onColorChange: (idx: number, ci: number) => void
   onWeightChange: (idx: number, w: number) => void
+  onSpeedChange: (v: number) => void
+  onLavaChange: (v: number) => void
+  onLavaRotChange: (v: number) => void
+  onToggleOrbit: () => void
+  onAspectChange: (a: AspectKey) => void
   onRandomize: () => void
   onToggleAnimate: () => void
   onToggleHandles: () => void
+  onToggleTheme: () => void
   onOpenPresets: () => void
   onCopyCss: () => void
   onExport: () => void
@@ -914,37 +1143,83 @@ function SidePanel({
   return (
     <aside
       className={[
-        'shrink-0 w-[260px] h-full',
-        'flex flex-col justify-between p-3.5',
-        'border-l border-border bg-card backdrop-blur-xl',
+        'ui-text shrink-0 w-[236px] h-full',
+        'flex flex-col gap-2.5 p-3',
+        'border-l border-border bg-card backdrop-blur-xl text-foreground',
       ].join(' ')}
     >
-      {/* top group — Randomize + color rows */}
-      <div className="flex flex-col gap-3 min-h-0 flex-1 overflow-y-auto scroll-thin">
-        <PanelButton onClick={onRandomize} icon={<Icon.Shuffle />} variant="primary">
-          Randomize
-        </PanelButton>
-        <div className="flex flex-col gap-1.5">
-          {slots.map((slot, i) => {
-            const share = totalWeight > 0
-              ? Math.round((slot.weight / totalWeight) * 100)
-              : 0
-            return (
-              <ColorRow
-                key={`slot-${i}`}
-                colorIndex={slot.colorIndex}
-                weight={slot.weight}
-                share={share}
-                onColorChange={(ci) => onColorChange(i, ci)}
-                onWeightChange={(w) => onWeightChange(i, w)}
-              />
-            )
-          })}
+      {/* top — Randomize + Presets side by side */}
+      <div className="grid grid-cols-2 gap-1.5 shrink-0">
+        <PanelButton onClick={onRandomize} icon={<Icon.Shuffle />}>Randomize</PanelButton>
+        <PanelButton onClick={onOpenPresets}>Presets</PanelButton>
+      </div>
+
+      {/* color rows — the only scrolling region */}
+      <div className="flex flex-col gap-1.5 min-h-0 flex-1 overflow-y-auto scroll-thin">
+        {slots.map((slot, i) => {
+          const share = totalWeight > 0
+            ? Math.round((slot.weight / totalWeight) * 100)
+            : 0
+          return (
+            <ColorRow
+              key={`slot-${i}`}
+              colorIndex={slot.colorIndex}
+              weight={slot.weight}
+              share={share}
+              onColorChange={(ci) => onColorChange(i, ci)}
+              onWeightChange={(w) => onWeightChange(i, w)}
+            />
+          )
+        })}
+      </div>
+
+      {/* effects */}
+      <div className="flex flex-col gap-1.5 shrink-0 pt-2.5 border-t border-border">
+        <span className={SECTION_LABEL}>Effects</span>
+        <EffectSlider label="Speed"  value={speed}   onChange={onSpeedChange} />
+        <EffectSlider label="Lava"   value={lava}    onChange={onLavaChange} />
+        <EffectSlider label="Rotate" value={lavaRot} max={360} suffix="°" onChange={onLavaRotChange} />
+        <div className="flex items-center gap-2">
+          <span className="w-10 text-foreground/80 shrink-0 select-none">Orbit</span>
+          <button
+            type="button"
+            onClick={onToggleOrbit}
+            className={[
+              'ml-auto px-2.5 py-0.5 rounded-md font-medium border transition',
+              lavaOrbit
+                ? 'bg-accent border-border text-foreground'
+                : 'bg-muted border-border text-muted-foreground hover:bg-accent hover:text-foreground',
+            ].join(' ')}
+          >
+            {lavaOrbit ? 'On' : 'Off'}
+          </button>
         </div>
       </div>
 
-      {/* bottom group — icon-only actions */}
-      <div className="grid grid-cols-5 gap-1.5">
+      {/* field size */}
+      <div className="flex flex-col gap-1.5 shrink-0">
+        <span className={SECTION_LABEL}>Field size</span>
+        <div className="grid grid-cols-3 gap-1">
+          {ASPECT_KEYS.map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onAspectChange(key)}
+              className={[
+                'px-1.5 py-0.5 rounded-md font-medium border transition',
+                aspect === key
+                  ? 'bg-accent border-border text-foreground'
+                  : 'bg-muted border-border text-muted-foreground hover:bg-accent hover:text-foreground',
+              ].join(' ')}
+            >
+              {key === 'free' ? 'Free' : key}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* actions */}
+      <div className="grid grid-cols-5 gap-1 shrink-0 pt-2.5 border-t border-border">
         <PanelIconButton
           onClick={onToggleAnimate}
           active={animate}
@@ -957,31 +1232,66 @@ function SidePanel({
           icon={showHandles ? <Icon.Points /> : <Icon.PointsOff />}
           label="Points"
         />
-        <PanelIconButton onClick={onOpenPresets} icon={<Icon.Presets />} label="Presets" />
-        <PanelIconButton onClick={onCopyCss}     icon={<Icon.Copy    />} label="Copy CSS" />
-        <PanelIconButton onClick={onExport}      icon={<Icon.Export  />} label="Export" />
+        <PanelIconButton
+          onClick={onToggleTheme}
+          icon={theme === 'dark' ? <Icon.Sun /> : <Icon.Moon />}
+          label={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+        />
+        <PanelIconButton onClick={onCopyCss} icon={<Icon.Copy   />} label="Copy CSS" />
+        <PanelIconButton onClick={onExport}  icon={<Icon.Export />} label="Export" />
       </div>
     </aside>
   )
 }
 
+function EffectSlider({
+  label, value, onChange, max = 100, suffix = '',
+}: {
+  label: string
+  value: number
+  onChange: (v: number) => void
+  max?: number
+  suffix?: string
+}) {
+  const sliderStyle: CSSProperties = {
+    ['--slider-pct' as never]: `${(value / max) * 100}%`,
+    ['--slider-fill' as never]: 'var(--color-muted-foreground)',
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-10 text-foreground/80 shrink-0 select-none whitespace-nowrap">{label}</span>
+      <input
+        type="range"
+        min={0}
+        max={max}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="brand-slider flex-1"
+        style={sliderStyle}
+        aria-label={label}
+      />
+      <span className="w-7 text-right text-muted-foreground tabular-nums shrink-0">
+        {value}{suffix}
+      </span>
+    </div>
+  )
+}
+
 function PanelButton({
-  children, icon, onClick, variant = 'default',
+  children, icon, onClick,
 }: {
   children: React.ReactNode
   icon?: React.ReactNode
   onClick: () => void
-  variant?: 'default' | 'primary'
 }) {
   return (
     <button
       onClick={onClick}
       className={[
-        'inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg w-full',
-        'text-[12px] font-medium border transition',
-        variant === 'primary'
-          ? 'bg-white/15 border-white/25 text-foreground hover:bg-white/22 hover:border-white/35'
-          : 'bg-white/[0.06] border-white/10 text-foreground/85 hover:bg-white/15 hover:text-foreground',
+        'inline-flex items-center justify-center gap-1.5 px-2 py-1 rounded-md w-full',
+        'font-medium border transition',
+        'bg-muted border-border text-foreground/90 hover:bg-accent hover:text-foreground',
       ].join(' ')}
     >
       {icon}
@@ -1004,11 +1314,10 @@ function PanelIconButton({
       title={label}
       aria-label={label}
       className={[
-        'inline-flex items-center justify-center aspect-square rounded-lg',
-        'border transition',
+        'inline-flex items-center justify-center h-7 rounded-md border transition',
         active
-          ? 'bg-white/15 border-white/25 text-foreground'
-          : 'bg-white/[0.04] border-white/10 text-foreground/70 hover:bg-white/12 hover:text-foreground',
+          ? 'bg-accent border-border text-foreground'
+          : 'bg-muted border-border text-muted-foreground hover:bg-accent hover:text-foreground',
       ].join(' ')}
     >
       {icon}
